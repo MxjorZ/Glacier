@@ -1,0 +1,34 @@
+# Build / runtime context exclusions for the Docker image.
+# Keeps the Docker build small and avoids leaking local dev/private files.
+
+# Python
+glacier_env
+__pycache__/
+*.pyc
+
+# Node / frontend (dist is built inside Docker; node_modules is huge)
+glacier_frontend/node_modules
+glacier_frontend/.vite
+glacier_frontend/dist
+glacier_frontend/src/**/*.map
+
+# VCS
+.git
+.gitignore
+.github
+
+# Local dev / docs
+backend_smoke_test.py
+backend_smoke_*.py
+*.md
+progress.md
+
+# Large local artifacts / backups / private data
+SpotiFLAC-main.zip
+SpotiFLAC-main_extracted
+Prompt Backup
+~
+all_graphs.json
+
+# Local compose env
+.env

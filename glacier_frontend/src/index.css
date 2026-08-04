@@ -1,0 +1,150 @@
+﻿@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-err: var(--err);
+  --color-info: var(--info);
+  --font-sans: "Bricolage Grotesque", "Google Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Google Sans Code", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.61 0.11 222);
+  --primary-foreground: oklch(0.98 0.02 201);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.58 0.22 27);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --ok: oklch(0.648 0.2 131.684);
+  --warn: oklch(0.795 0.184 86.047);
+  --err: oklch(0.58 0.22 27);
+  --info: oklch(0.488 0.243 264.376);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.71 0.13 215);
+  --primary-foreground: oklch(0.3 0.05 230);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.371 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --ok: oklch(0.72 0.2 162);
+  --warn: oklch(0.85 0.19 86);
+  --err: oklch(0.704 0.191 22.216);
+  --info: oklch(0.68 0.15 237);
+}
+/* AMOLED: true black chrome with barely-elevated surfaces (toggles with .amoled on <html>) */
+html.amoled {
+  --background: #000000;
+  --foreground: #e5e5e5;
+  --card: #0a0a0a;
+  --card-foreground: #e5e5e5;
+  --popover: #0a0a0a;
+  --popover-foreground: #e5e5e5;
+  --secondary: #111111;
+  --secondary-foreground: #e5e5e5;
+  --muted: #0f0f0f;
+  --muted-foreground: #9ca3af;
+  --accent: #161616;
+  --accent-foreground: #e5e5e5;
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+}
+
+
+/* ---- accent presets (light) ---- */
+:root[data-accent="cyan"]   { --primary: oklch(0.61 0.11 222); --primary-foreground: oklch(0.98 0.02 201); }
+:root[data-accent="sky"]    { --primary: oklch(0.59 0.14 242); --primary-foreground: oklch(0.98 0.01 237); }
+:root[data-accent="teal"]   { --primary: oklch(0.6 0.1 185);  --primary-foreground: oklch(0.98 0.01 181); }
+:root[data-accent="blue"]   { --primary: oklch(0.488 0.243 264.376); --primary-foreground: oklch(0.97 0.014 254.604); }
+:root[data-accent="purple"] { --primary: oklch(0.541 0.281 293.009); --primary-foreground: oklch(0.969 0.016 293.756); }
+:root[data-accent="green"]  { --primary: oklch(0.648 0.2 131.684);  --primary-foreground: oklch(0.986 0.031 120.757); }
+:root[data-accent="orange"] { --primary: oklch(0.7 0.18 60);   --primary-foreground: oklch(0.99 0.02 60); }
+:root[data-accent="red"]    { --primary: oklch(0.63 0.24 25);  --primary-foreground: oklch(0.97 0.015 12); }
+:root[data-accent="yellow"] { --primary: oklch(0.852 0.199 91.936); --primary-foreground: oklch(0.421 0.095 57.708); }
+
+/* ---- accent presets (dark) ---- */
+.dark[data-accent="cyan"]   { --primary: oklch(0.71 0.13 215); --primary-foreground: oklch(0.3 0.05 230); }
+.dark[data-accent="sky"]    { --primary: oklch(0.68 0.15 237); --primary-foreground: oklch(0.29 0.06 243); }
+.dark[data-accent="teal"]   { --primary: oklch(0.7 0.12 183);  --primary-foreground: oklch(0.28 0.04 193); }
+.dark[data-accent="blue"]   { --primary: oklch(0.42 0.18 266); --primary-foreground: oklch(0.97 0.014 254.604); }
+.dark[data-accent="purple"] { --primary: oklch(0.606 0.25 292.717); --primary-foreground: oklch(0.969 0.016 293.756); }
+.dark[data-accent="green"]  { --primary: oklch(0.7 0.2 155);   --primary-foreground: oklch(0.25 0.05 160); }
+.dark[data-accent="orange"] { --primary: oklch(0.78 0.16 65);  --primary-foreground: oklch(0.3 0.07 45); }
+.dark[data-accent="red"]    { --primary: oklch(0.7 0.22 25);   --primary-foreground: oklch(0.97 0.015 12); }
+.dark[data-accent="yellow"] { --primary: oklch(0.795 0.184 86.047); --primary-foreground: oklch(0.421 0.095 57.708); }
+
+@layer base {
+  html, body, #root { height: 100%; overflow: hidden; }
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground; font-family: var(--font-sans); }
+  code, pre, .font-mono { font-family: var(--font-mono) !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Custom scrollbar - follows primary color theme */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--secondary); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 4px; opacity: 0.7; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary); filter: brightness(1.2); }
+* { scrollbar-width: thin; scrollbar-color: var(--primary) var(--secondary); }

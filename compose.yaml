@@ -1,0 +1,45 @@
+# Glacier — docker compose stack (Stage 3).
+#
+# Start:   docker compose up -d --build
+# Stop:    docker compose down
+# Logs:    docker compose logs -f glacier
+# Open UI: http://<server-ip>:5050   (or GLACIER_PORT if you override it)
+#
+# Data persists across restarts/upgrades in the `glacier-data` named volume:
+# settings (~/.glacier_settings.json) and the scan cache (~/.glacier_cache).
+#
+# Scenario on a Windows host:
+#   1. cp .env.example .env  (edit if needed)
+#   2. docker compose up -d --build
+#   3. In Glacier → Libraries, add your music folder(s) using the CONTAINER path
+#      (e.g. /music, or /music2 if you added a second mount below).
+#   4. Browse to http://localhost:5050
+#
+# NOTE: Glacier manages (scans / organizes / moves / tags / covers) the folders
+# you mount here. Only give it folders you are happy for it to modify.
+
+services:
+  glacier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: glacier:stage3
+    container_name: glacier
+    restart: unless-stopped
+    ports:
+      - "${GLACIER_PORT:-5050}:5050"
+    environment:
+      HOME: /data
+      TZ: "${TZ:-UTC}"
+    volumes:
+      # Persistent settings + scan cache. Do not remove.
+      - glacier-data:/data
+
+      # Music libraries (bind mounts). The CONTAINER target is what you enter
+      # in Glacier → Libraries. To manage more than one library, add another
+      # line, e.g.:
+      #   - "${MUSIC_DIR_2:-D:/Music/Archive}:/music2"
+      - "${MUSIC_DIR:-./music}:/music"
+
+volumes:
+  glacier-data:

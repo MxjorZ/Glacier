@@ -1,0 +1,24 @@
+{
+  "libraries": [
+    {"id": "lib_a", "name": "Main Archive", "path": "D:/Music"},
+    {"id": "lib_b", "name": "Mobile", "path": "E:/PhoneMusic"}
+  ],
+  "extensions": [".flac", ".mp3"],
+  "excluded_folders": ["Playlists", "- Playlists"],
+  "folder_pattern": "{albumartist}/{album} ({year})",
+  "naming_pattern": "{artist} - {album} - {track:02d} - {title}",
+  "dup_priority": "flac",
+  "exclusivity_identity": "auto",
+  "exclusivity_default_policy": "report_only",
+  "preferred_library_id": "lib_a",
+  "backup_before_move": false,
+  "openai_key": "",
+  "gemini_key": "",
+  "claude_key": "",
+  "ai_providers": ["openai"],
+  "plex_url": "http://127.0.0.1:32400",
+  "plex_token": "",
+  "plex_music_section": "Music",
+  "theme": "sky",
+  "theme_mode": "auto"
+}
