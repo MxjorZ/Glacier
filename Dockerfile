@@ -20,6 +20,11 @@ ENV PYTHONUNBUFFERED=1 \
     HOME=/data \
     PIP_NO_CACHE_DIR=1
 
+# Run as root (the default) so Glacier has full access to the bind-mounted
+# music folders (e.g. the host's /mnt). This is intentional and required for
+# Glacier to browse and manage the mounted libraries.
+USER root
+
 WORKDIR /app
 
 COPY requirements.txt ./

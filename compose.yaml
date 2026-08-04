@@ -26,6 +26,10 @@ services:
     image: glacier:stage3
     container_name: glacier
     restart: unless-stopped
+    # Run as root so Glacier can fully access every bind-mounted music folder
+    # (it browses, scans, organizes, moves and tags the mounted files). This is
+    # intentional and required for the app to work.
+    user: "0:0"
     ports:
       - "${GLACIER_PORT:-5050}:5050"
     environment:
@@ -35,11 +39,18 @@ services:
       # Persistent settings + scan cache. Do not remove.
       - glacier-data:/data
 
-      # Music libraries (bind mounts). The CONTAINER target is what you enter
-      # in Glacier → Libraries. To manage more than one library, add another
-      # line, e.g.:
-      #   - "${MUSIC_DIR_2:-D:/Music/Archive}:/music2"
-      - "${MUSIC_DIR:-./music}:/music"
+      # ----- Host file system -----
+      # Your music lives on the HOST (e.g. /mnt/music and /mnt/MusicFolder).
+      # A container is isolated, so it CANNOT see the host's /mnt on its own.
+      # Bind the host /mnt into the container at /mnt (overrides the empty
+      # container /mnt) so Glacier's file explorer shows the exact same tree as
+      # your native file browser. Configure the source with HOST_MNT in .env.
+      - "${HOST_MNT:-/mnt}:/mnt"
+
+      # ----- Music libraries (alternative / extra bind mounts) -----
+      # If your music is elsewhere (not under /mnt), mount it explicitly and
+      # enter the CONTAINER path in Glacier → Libraries, e.g.:
+      #   - "${MUSIC_DIR:-./music}:/music"
 
 volumes:
   glacier-data:

@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { Plus, RefreshCw, Pencil, Trash2, Folder, HardDrive, UserCheck, MoveRight, CheckCircle2, CircleOff, AlertTriangle, Loader2, ServerOff } from "lucide-react";
 import { api, fmtBytes, fmtDate } from "../api.js";
-import FolderPicker from "../FolderPicker.jsx";
+import FileExplorer from "../FileExplorer.jsx";
 import { useJob } from "../useJob.js";
 import { Card, CardHeader, CardTitle, CardContent, CardAction, CardDescription } from "@/components/ui/card.jsx";
 import { Button } from "@/components/ui/button.jsx";
@@ -465,7 +465,7 @@ export default function Libraries() {
         confirmLabel="Apply"
       />
 
-      <FolderPicker open={picker} onClose={() => setPicker(false)} onSelect={(p) => { setNewPath(p); setPicker(false); }} />
+      <FileExplorer open={picker} onClose={() => setPicker(false)} onSelect={(p) => { setNewPath(p); setPicker(false); }} />
 
       <Modal open={newPath !== ""} onClose={() => setNewPath("")} title="Confirm Library Path" width="max-w-md">
         <div className="space-y-4 pt-2">

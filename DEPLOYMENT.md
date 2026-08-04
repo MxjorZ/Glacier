@@ -95,12 +95,33 @@ docker compose up -d --build
 
 - Copy `.env.example` to `.env` and edit the values you need.
 - `GLACIER_PORT`: host port the UI is published on (default 5050).
-- `MUSIC_DIR`: the **host** path to your first music folder. It is mounted into
-  the container at `/music`. Inside Glacier → Libraries you add the library
-  using the **container** path `/music` (or `/music2` if you add a second
-  mount).
+- `HOST_MNT` (default `/mnt`): which **host** directory is exposed inside the
+  container at the same path (`${HOST_MNT}:/mnt`). **This is how Glacier sees
+  your music.** If your libraries live under host `/mnt/music` and
+  `/mnt/MusicFolder`, leave this default — the container’s `/mnt` then contains
+  exactly those folders and the file explorer (and library paths) work like
+  your native file browser. If your music is elsewhere, point `HOST_MNT` there
+  or add explicit bind mounts (see below).
+- `MUSIC_DIR`: optional **host** path mounted to `/music` for music that is not
+  under `/mnt`. Inside Glacier → Libraries you add the library using the
+  **container** path `/music` (or a subfolder like `/mnt/music`).
 - To manage more than one library, add another bind mount in `compose.yaml`
-  (a commented example is provided) and add the library as that container path.
+  (commented examples are provided) and add the library as that container path.
+
+> **Important:** a Docker container is isolated — it cannot see the host’s
+> files unless they are bind-mounted. The reason Glacier’s explorer showed an
+> empty `/mnt` is that only `/music` was mounted; the host `/mnt` was not.
+> The stack now mounts `HOST_MNT` and runs as **root** so Glacier can read and
+> manage all mounted music.
+
+### Root & permissions
+
+The container intentionally runs as **root** (`Dockerfile: USER root` and
+`compose.yaml: user: "0:0"`). Glacier browses, scans, organizes, moves and tags
+the mounted files, so root access to the mounted libraries is required for the
+app to work properly. This applies only inside the container; it does not
+change anything on the host (host folders are fully controlled by their own
+filesystem permissions).
 
 ### Volumes & persistence
 

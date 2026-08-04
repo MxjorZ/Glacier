@@ -11,6 +11,36 @@ change code.
 
 ## CHANGELOG (most recent first)
 
+- **2026-08-04 File explorer fully rewritten (big-icon grid) + Docker now root &
+  mounts host /mnt**
+  - **Root cause of “can’t see /mnt/music, /mnt/MusicFolder”:** the container only
+    mounted `./music:/music`, so the container’s own `/mnt` was empty. The host
+    music lived under `/mnt`; a static/other file browser on the HOST saw it, but
+    the container never had those folders mounted. Fixed in `compose.yaml`:
+    bind the **host `/mnt` → container `/mnt`** (`${HOST_MNT:-/mnt}:/mnt`,
+    new `.env` `HOST_MNT=/mnt`), so Glacier’s explorer shows the exact same tree
+    as the native browser. Also force **root**: `Dockerfile` `USER root` and
+    compose `user: "0:0"` (Docker runs as root by default; this makes it explicit
+    and guarantees read/manage access to mounted music).
+  - **Frontend rewritten from scratch as `FileExplorer.jsx`** (old `FolderPicker.jsx`
+    deleted — no traces; `tag-folder-picker.jsx` aliases `FileExplorer as FolderPicker`
+    so Tags keeps working unchanged):
+    - **Near-fullscreen** explorer (`h-[calc(100vh-3rem)] w-[calc(100vw-3rem)]`).
+    - **Big-icon grid** (native look): folder/file tiles ~104px+, large icons
+      (amber folders, music-note for songs, file icon for others, hard-drive for
+      root drives/mounts), name + size below, live song-count badge per folder.
+    - **List view** toggle (LayoutGrid / List).
+    - **Breadcrumb** hierarchy + Roots / Up / Refresh; **search** filter; **sort**
+      by name / size / audio-first; **audio-only** filter; **load-more**
+      pagination (400/page).
+    - **Native interactions**: single-click select (highlights), double-click or
+      Enter opens a folder, Backspace / ← goes up, “Select folder” picks the
+      current folder (or the selected folder).
+  - Verified: `npm run build` succeeds; backend smoke test passes; live server
+    serves UI + `/api/list-dir` returns folders with audio counts and
+    per-file `audio`/per-dir `audio` flags (TheBeatles:1, readme.txt:False).
+
+
 - **2026-08-04 Folder picker upgraded to a real file explorer (Linux-first)**
   - Problem reported: after drilling deep into a folder the other folders in the
     hierarchy were no longer visible, and not every file was shown — so picking

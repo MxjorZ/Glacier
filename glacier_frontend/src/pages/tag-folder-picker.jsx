@@ -1,4 +1,4 @@
-import FolderPicker from '../FolderPicker.jsx';
+import FileExplorer from '../FileExplorer.jsx';
 
-// Re-export the shared folder browser modal for the Tags page.
-export { FolderPicker };
+// Re-export the shared file explorer (formerly FolderPicker) for the Tags page.
+export { FileExplorer as FolderPicker };
