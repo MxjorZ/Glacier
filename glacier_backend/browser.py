@@ -243,21 +243,19 @@ def list_dir(path=None):
 
 def list_roots():
     """
-    Return actual filesystem roots.
+    Return useful filesystem roots for the picker.
 
-    The user can navigate from here.
+    Designed for Glacier running in Docker:
+    shows mounted storage locations while still allowing normal browsing.
     """
 
     if os.name == "nt":
-
         roots = []
 
         for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-
             drive = f"{letter}:\\"
 
             if os.path.exists(drive):
-
                 roots.append({
                     "name": drive,
                     "path": drive,
@@ -266,31 +264,38 @@ def list_roots():
                     "audio_estimate": False,
                 })
 
+        home = os.path.expanduser("~")
+
+        roots.append({
+            "name": "Home",
+            "path": home,
+            "type": "dir",
+            "audio": None,
+            "audio_estimate": False,
+        })
 
     else:
-
         roots = []
 
-        for path in [
-            "/",
-            "/home",
-            "/mnt",
-            "/media",
-            "/opt",
-            "/srv",
-            "/var",
-        ]:
+        # Only show useful storage locations
+        paths = [
+            ("/mnt", "Storage (/mnt)"),
+            ("/srv", "Server Data (/srv)"),
+            ("/opt", "Applications (/opt)"),
+        ]
 
-            if _safe_is_dir(path):
-
-                roots.append({
-                    "name": path,
-                    "path": path,
-                    "type": "dir",
-                    "audio": None,
-                    "audio_estimate": False,
-                })
-
+        for path, name in paths:
+            try:
+                if os.path.isdir(path):
+                    roots.append({
+                        "name": name,
+                        "path": path,
+                        "type": "dir",
+                        "audio": None,
+                        "audio_estimate": False,
+                    })
+            except OSError:
+                continue
 
     return {
         "path": None,
