@@ -11,6 +11,28 @@ change code.
 
 ## CHANGELOG (most recent first)
 
+- **2026-08-04 Folder picker is now audio-aware (fixes “can’t see/load files”)**
+  - Root cause: the folder browser only listed **folders** — never files — and
+    gave no indication whether a folder contained any music. Users would pick a
+    library folder that held no songs (or couldn’t verify one), so scanning
+    found nothing → “the program can’t load any file”.
+  - Backend `glacier_backend/browser.py`: `list_dir()` now returns
+    `BOOLEAN audio` per file (FLAC/MP3/OGG/M4A/OPUS/WMA via `config.SUPPORTED_EXTENSIONS`),
+    an `audio_here` count (audio files directly in the folder), a recursive
+    `audio_total` (+ `audio_total_estimate`) for the current folder, and a
+    recursive `audio` count per subfolder (capped at 200k files for safety).
+    `count_audio()` helper added; audio files sort first.
+  - Frontend `FolderPicker.jsx`: lists **files** (not only folders), highlights
+    audio files with a music icon, shows a “N songs / no songs” badge per
+    folder row, a “N songs in this folder” summary in the footer, and an
+    “Show only audio files” checkbox (default on). Works for both the Libraries
+    and Tags folder pickers (same component).
+  - Verified: new `browser.list_dir` probe (nested `flac`/`mp3` counts, non-audio
+    `jpg`/`txt` excluded from counts) passes; backend smoke test passes;
+    `npm run build` succeeds; live server `/api/list-dir` returns
+    `audio_total`, `audio_here`, per-file `audio` and per-dir `audio` correctly.
+
+
 - **2026-08-04 Stage 3 start — Libraries connection/selection UI + Docker stack**
   - **Libraries page** now shows a real **server-connection state** (loading /
     connected / unreachable banner with Retry), an explicit **“Load libraries”**
