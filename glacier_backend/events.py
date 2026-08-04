@@ -22,11 +22,18 @@ class _Hub:
         self._history = deque(maxlen=max_buffer)
 
     def connect(self):
-        """Register a new client and return its own queue."""
+        """Register a new client and return its own queue.
+
+        The new client is immediately sent a ``connected`` event onto its own
+        queue so the SSE stream produces a first chunk right away (also makes
+        the stream flush its headers immediately).
+        """
+        ev = _event("connected", at=time.time())
         q = queue.Queue()
         with self._lock:
             self._clients.add(q)
-        self._history.append(_event("connected", {"at": time.time()}))
+            self._history.append(ev)
+        q.put_nowait(ev)
         return q
 
     def disconnect(self, q):

@@ -21,8 +21,14 @@ def _excluded_lower():
     return {e.lower() for e in (config.DEFAULT_EXCLUDED_FOLDERS or []) if e}
 
 
-def count_audio(root, cap=200000):
-    """Recursive audio-file count in ``root``.
+# Safety cap for the single recursive total-count walk of the CURRENT folder
+# (only done once per listing, not per subfolder, so huge trees stay fast and
+# the result is just marked as an estimate when truncated).
+TOTAL_CAP = 100000
+
+
+def count_audio(root, cap=TOTAL_CAP):
+    """Recursive audio-file count in ``root`` (used only for the current folder).
 
     Returns ``(count, is_estimate)``. ``is_estimate`` is True when the walk hit
     the safety cap before finishing (very large trees). Stops early on most
@@ -48,12 +54,27 @@ def count_audio(root, cap=200000):
     return count, False
 
 
+def _audio_direct(root):
+    """Audio files DIRECTLY inside ``root`` (no recursion — fast for the
+    file-explorer listing where we never want to crawl entire trees)."""
+    count = 0
+    try:
+        with os.scandir(root) as it:
+            for e in it:
+                if e.is_file() and _is_audio(e.name):
+                    count += 1
+    except OSError:
+        pass
+    return count
+
+
 def list_dir(path):
     """Return subdirectories and files for a path (or common roots when empty).
 
-    Each directory entry carries ``audio`` (recursive song count, with
-    ``audio_estimate``) so the UI can surface which folder holds the music.
-    Files carry ``audio`` to distinguish songs from other files.
+    Fast / native-like: it never recursively scans subfolders for this listing.
+    Each folder entry carries ``audio`` = audio files DIRECTLY inside it (cheap),
+    and the response reports the recursive ``audio_total`` for the CURRENT folder
+    only (a single bounded walk). Files carry ``audio`` to flag songs.
     """
     if not path or not path.strip():
         return list_roots()
@@ -75,9 +96,8 @@ def list_dir(path):
             if e.is_dir():
                 if e.name.lower() in excluded or e.name.startswith("."):
                     continue
-                acount, estimate = count_audio(e.path)
                 dirs.append({"name": e.name, "path": e.path, "type": "dir",
-                             "audio": acount, "audio_estimate": estimate})
+                             "audio": _audio_direct(e.path), "audio_estimate": False})
             elif e.is_file():
                 audio = _is_audio(e.name)
                 if audio:
@@ -118,6 +138,8 @@ def list_roots():
                 "files": [], "audio_here": 0, "audio_total": None,
                 "audio_total_estimate": False}
     roots = [{"name": "Home", "path": os.path.expanduser("~"), "type": "dir",
+              "audio": None, "audio_estimate": False},
+             {"name": "Root /", "path": "/", "type": "dir",
               "audio": None, "audio_estimate": False},
              *[{"name": p, "path": p, "type": "dir",
                 "audio": None, "audio_estimate": False}

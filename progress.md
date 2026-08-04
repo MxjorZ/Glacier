@@ -11,6 +11,35 @@ change code.
 
 ## CHANGELOG (most recent first)
 
+- **2026-08-04 Fixed recent-session bugs (from user’s container logs)**
+  - **SSE `/api/events` crashed with 500** — two bugs, both fixed:
+    1. `events.py` called `_event("connected", {"at": ...})` but `_event(etype, **extra)`
+       only accepts kwargs → `TypeError` on every SSE connect. Fixed to
+       `_event("connected", at=...)`, and `connect()` now also pushes an
+       immediate `connected` event onto the new client’s queue (stream sends its
+       first chunk and flushes headers instantly instead of after a 15s keepalive).
+    2. `api.py` `sse_events` used `Response`/`stream_with_context` without importing
+       them → `NameError: Response is not defined` (was masked by bug #1 in the
+       container). Added `Response, stream_with_context` to the Flask import.
+    Live-verified: `GET /api/events` returns **200** and streams.
+  - **`add_library` returned 500 “Library with that path already exists”** (a
+    `ValueError` raised by `store.add_library`). `api.py` now detects the
+    duplicate first and returns a clean **409** with `already_exists` + the
+    existing library; the frontend Libraries `add` handler surfaces the message
+    and, on “already exists”, closes the prompt and refreshes the list (so you
+    see the library that is already configured).
+  - **File explorer couldn’t show huge `/mnt` trees** — `browser.list_dir` did a
+    FULL recursive audio scan of every subfolder per listing, so on large music
+    libraries `/mnt` appeared to load nothing / hang. Now per-folder `audio` is a
+    cheap **direct** count (no recursion), and only the CURRENT folder gets one
+    capped recursive `audio_total` walk (cap 100k, marked estimate). Added a
+    **“Root /”** entry to Linux `list_roots()` so `/mnt` (or any mount) is always
+    reachable from the root. Live-verified listing is fast.
+  - **Remember:** on the server, `docker compose up -d --build` (recreates the
+    container with the root + `/mnt` mount from the previous entry AND the new
+    backend code).
+
+
 - **2026-08-04 File explorer fully rewritten (big-icon grid) + Docker now root &
   mounts host /mnt**
   - **Root cause of “can’t see /mnt/music, /mnt/MusicFolder”:** the container only

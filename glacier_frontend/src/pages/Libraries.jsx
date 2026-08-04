@@ -145,6 +145,13 @@ export default function Libraries() {
       refresh();
     } catch (e) {
       toast.error(e.message);
+      // If the folder is already a library, stop prompting to re-add it and
+      // just show the current, up-to-date list.
+      if (/already exists/i.test(e.message || "")) {
+        setNewPath("");
+        setPicker(false);
+        refresh();
+      }
     }
   };
 

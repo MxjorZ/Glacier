@@ -12,7 +12,7 @@ files.
 import os
 import time
 
-from flask import request, jsonify
+from flask import request, jsonify, Response, stream_with_context
 
 from . import config
 from . import events
@@ -525,6 +525,13 @@ def register_routes(app):
             return jsonify({"ok": False, "error": "Path is required"}), 400
         if not os.path.isdir(path):
             return jsonify({"ok": False, "error": "Path is not a directory"}), 400
+        existing = next((l for l in _libs() if l["path"].lower() == path.lower()), None)
+        if existing:
+            return jsonify({
+                "ok": False,
+                "error": f"Library already exists: {existing.get('name') or existing.get('path')}",
+                "already_exists": True, "library": existing,
+            }), 409
         lib = store.add_library(name or path, path)
         return jsonify({"ok": True, "library": lib}), 201
 
