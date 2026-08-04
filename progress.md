@@ -11,6 +11,34 @@ change code.
 
 ## CHANGELOG (most recent first)
 
+- **2026-08-04 Folder picker upgraded to a real file explorer (Linux-first)**
+  - Problem reported: after drilling deep into a folder the other folders in the
+    hierarchy were no longer visible, and not every file was shown — so picking
+    the correct library folder was guesswork.
+  - `FolderPicker.jsx` rebuilt as a file explorer:
+    - **Clickable breadcrumb** of the full path (root/…/current) — always see
+      where you are and jump to any ancestor folder with one click. `buildCrumbs()`
+      builds clean paths on Linux (`/home/user/Music`) and Windows (`C:\Users\…`);
+      separator bug fixed so nested crumbs have no missing slashes.
+    - **Every file is listed** (default “show all files”, animated audio icon for
+      songs, size shown); an “Show only audio files” checkbox still lets you
+      focus on songs.
+    - **Filter-by-name** search box applies to folders and files.
+    - **Load more** pagination (300/page) for huge folders, with a
+      “Files (all) · N of M” header.
+    - Breadcrumb click, “Browse roots”, “Up”, and “Root” all navigate.
+  - `glacier_backend/browser.py`: raised the listing caps (5000 dirs /
+    100000 files) so entries are no longer silently hidden; returns
+    `dirs_total`/`files_total` + `dirs_truncated`/`files_truncated`.
+    (`list_roots()` already exposes Linux mounts `/mnt`, `/media`, `/opt`, Home.)
+  - Primary focus is the Ubuntu Server 24.04 VM (user’s proxmox host); Windows /
+    macOS paths still handled by the same component.
+  - Verified: `buildCrumbs` unit check (`/home/user/Music` → `/home`, `/home/user`,
+    `/home/user/Music`), `npm run build` succeeds, backend smoke test passes, live
+    server deep-path `/api/list-dir` returns parent chain + all files + per-file
+    `audio` + `audio_here`/`audio_total` correctly.
+
+
 - **2026-08-04 Folder picker is now audio-aware (fixes “can’t see/load files”)**
   - Root cause: the folder browser only listed **folders** — never files — and
     gave no indication whether a folder contained any music. Users would pick a

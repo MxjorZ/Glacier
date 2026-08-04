@@ -88,9 +88,18 @@ def list_dir(path):
             continue
 
     audio_total, audio_total_est = count_audio(path)
+
+    # File-explorer-like: don't silently hide entries. Use high safety caps only
+    # against truly pathological folders and report when anything was cut.
+    MAX_DIRS = 5000
+    MAX_FILES = 100000
     return {"path": path, "parent": os.path.dirname(path) or None,
-            "dirs": dirs[:300], "files": files[:500], "audio_here": audio_here,
-            "audio_total": audio_total, "audio_total_estimate": audio_total_est}
+            "dirs": dirs[:MAX_DIRS], "files": files[:MAX_FILES],
+            "audio_here": audio_here,
+            "audio_total": audio_total, "audio_total_estimate": audio_total_est,
+            "dirs_total": len(dirs), "files_total": len(files),
+            "dirs_truncated": len(dirs) > MAX_DIRS,
+            "files_truncated": len(files) > MAX_FILES}
 
 
 def list_roots():
