@@ -148,3 +148,33 @@ html.amoled {
 ::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 4px; opacity: 0.7; }
 ::-webkit-scrollbar-thumb:hover { background: var(--primary); filter: brightness(1.2); }
 * { scrollbar-width: thin; scrollbar-color: var(--primary) var(--secondary); }
+
+/* ---- Stage 4 #16: Enhanced UI animations ---- */
+:root {
+  --anim-duration: 200ms;
+  --anim-easing: ease-out;
+}
+.anim-fade {
+  animation: anim-fade-in var(--anim-duration) var(--anim-easing);
+}
+html[data-anim-page='off'] .anim-fade {
+  animation: none;
+}
+@keyframes anim-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Interactions (buttons, cards) respect the hover/click toggles. */
+html[data-anim-hover='on'] .btn-anim {
+  transition: transform var(--anim-duration) var(--anim-easing),
+              box-shadow var(--anim-duration) var(--anim-easing),
+              background-color var(--anim-duration) var(--anim-easing);
+}
+html[data-anim-hover='on'] .btn-anim:hover { transform: translateY(-1px); }
+html[data-anim-click='on'] .btn-anim:active { transform: scale(0.97); }
+
+/* Playful preset adds a little extra life to buttons. */
+html[data-anim='playful'] .btn-anim:hover { transform: translateY(-2px) scale(1.02); }
+html[data-anim='playful'] .anim-fade { animation-duration: calc(var(--anim-duration) * 1.2); }
+html[data-anim='fast'] .anim-fade { animation-duration: calc(var(--anim-duration) * 0.8); }

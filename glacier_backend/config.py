@@ -18,6 +18,10 @@ DEFAULT_PORT = 5050
 # Where persistent settings are stored on disk.
 SETTINGS_PATH = Path.home() / ".glacier_settings.json"
 
+# Stage 4: persistent global error center + recent operations history.
+ERRORS_PATH = Path.home() / ".glacier_errors.json"
+OPERATIONS_PATH = Path.home() / ".glacier_operations.json"
+
 # Audio file extensions Glacier knows how to read metadata for.
 SUPPORTED_EXTENSIONS = [".flac", ".mp3", ".ogg", ".m4a", ".opus", ".wma"]
 
@@ -100,6 +104,15 @@ DEFAULT_SETTINGS = {
         "mode": "dark",          # light | dark | amoled | auto
         "accent": "cyan",        # preset name or "custom"
         "accent_custom": None,   # hex "#RRGGBB" / "#RGB" or "r,g,b"
+    },
+    # Stage 4 (#16): Enhanced UI animations.
+    "animations": {
+        "preset": "modern",         # minimal | modern | material | smooth | fast | playful
+        "page_transitions": True,   # fade/slide between pages
+        "hover": True,
+        "click": True,
+        "duration_ms": 220,
+        "easing": "ease-out",
     },
 }
 

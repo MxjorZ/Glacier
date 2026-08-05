@@ -77,6 +77,21 @@ def _normalize(raw):
     if theme.get("mode") not in ("light", "dark", "amoled", "auto"):
         theme["mode"] = "dark"
 
+    # Stage 4 (#16): animation settings (tolerant upgrades).
+    anim = merged.setdefault("animations", {})
+    anim.setdefault("preset", "modern")
+    anim.setdefault("page_transitions", True)
+    anim.setdefault("hover", True)
+    anim.setdefault("click", True)
+    anim.setdefault("duration_ms", 220)
+    anim.setdefault("easing", "ease-out")
+    try:
+        anim["duration_ms"] = max(50, min(1000, int(anim.get("duration_ms") or 220)))
+    except (TypeError, ValueError):
+        anim["duration_ms"] = 220
+    if anim.get("preset") not in ("minimal", "modern", "material", "smooth", "fast", "playful"):
+        anim["preset"] = "modern"
+
     return merged
 
 

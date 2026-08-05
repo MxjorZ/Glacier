@@ -48,13 +48,56 @@ export const api = {
 
   plex: {
     status: () => req('POST', '/api/plex/status'),
+    test: (url, token, section) => req('POST', '/api/plex/test', { url, token, section }),
+    sections: (url, token) => req('POST', '/api/plex/sections', { url, token }),
     stats: () => req('POST', '/api/plex/stats'),
+    libraryStats: () => req('POST', '/api/plex/library-stats'),
     search: (query) => req('POST', '/api/plex/search', { query }),
     rate: (query, rating) => req('POST', '/api/plex/rate', { query, rating }),
     duplicates: () => req('POST', '/api/plex/duplicates'),
     syncRatings: () => req('POST', '/api/plex/sync-ratings'),
     syncStatus: () => req('GET', '/api/plex/sync-status'),
+    exportLibrary: (section, url, token) => req('POST', '/api/run/plex-export', { section, url, token }),
+    exportContent: (url, token, section) => req('POST', '/api/plex/export', { section, url, token }),
   },
+
+  // Stage 4
+  errors: () => req('GET', '/api/errors'),
+  clearErrors: () => req('DELETE', '/api/errors'),
+  operations: (limit = 100) => req('GET', `/api/operations?limit=${limit}`),
+  quickScan: (library_ids) => req('POST', '/api/run/quick-scan', { library_ids }),
+  tracks: (body) => req('POST', '/api/tracks', body),
+  genres: (library_id) => req('POST', '/api/genres', { library_id }),
+  genreOps: (op, body) => req('POST', `/api/run/genres/${op}`, body),
+};
+
+// ---- Formatters (Stage 4 #11): one consistent DD/MM/YYYY HH:mm:ss format -----
+const pad = (n) => String(n).padStart(2, '0');
+
+export const fmtDateTime = (ts) => {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
+export const fmtDateDay = (ts) => {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+};
+
+// Recent-operation style label: Today 21:35 / Yesterday 18:42 / 05/08/2026 11:32
+export const fmtRelative = (ts) => {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startToday - startDay) / 86400000);
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (diffDays === 0) return `Today ${time}`;
+  if (diffDays === 1) return `Yesterday ${time}`;
+  return `${fmtDateDay(ts)} ${time}`;
 };
 
 // Formatters reused across pages.
@@ -70,7 +113,5 @@ export const fmtDur = (sec) => {
   const s = Math.floor(sec % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
-export const fmtDate = (ts) => {
-  if (!ts) return '—';
-  return new Date(ts * 1000).toLocaleString();
-};
+// Back-compat wrapper for existing callers; now uses the standard format.
+export const fmtDate = (ts) => fmtDateTime(ts);

@@ -59,6 +59,7 @@ export default function Libraries() {
 
   // ---- Create library & move (Stage 2) ----
   const [extOpen, setExtOpen] = useState(false);
+  const [extErr, setExtErr] = useState('');
   const [extName, setExtName] = useState("");
   const [extPath, setExtPath] = useState("");
   const [extScript, setExtScript] = useState("");
@@ -78,8 +79,10 @@ export default function Libraries() {
   const toggleSource = (id) =>
     setExtSources((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const dryExtract = async () => {
-    if (!extPath) return toast.error("Destination path is required");
-    if (extSources.length === 0) return toast.error("Select at least one source library");
+    setExtErr('');
+    if (!extName.trim()) { setExtErr('Please give the new library a name.'); return; }
+    if (!extPath.trim()) { setExtErr('Please set a destination folder path.'); return; }
+    if (extSources.length === 0) { setExtErr('Select at least one source library.'); return; }
     const res = await api.extractMove({
       name: extName, path: extPath, filters: buildFilters(),
       source_library_ids: extSources, dry_run: true,
@@ -153,6 +156,25 @@ export default function Libraries() {
         refresh();
       }
     }
+  };
+
+  // Add several folders at once (the picker supports "Select all" / multi-check).
+  const addMany = async (paths) => {
+    let ok = 0;
+    let dup = 0;
+    let err = 0;
+    for (const p of Array.from(new Set(paths.filter(Boolean)))) {
+      try {
+        await api.addLibrary(pathName(p), p);
+        ok += 1;
+      } catch (e) {
+        if (/already exists/i.test(e.message || "")) dup += 1;
+        else { err += 1; toast.error(e.message || `Failed to add ${p}`); }
+      }
+    }
+    if (ok > 0) toast.success(`Added ${ok} librar${ok === 1 ? "y" : "ies"}`);
+    if (dup > 0) toast.info(`${dup} already added`);
+    refresh();
   };
 
   const renameSubmit = async () => {
@@ -368,7 +390,7 @@ export default function Libraries() {
           <CardTitle className="flex items-center gap-2"><MoveRight className="size-4 text-primary" /> Create library &amp; move</CardTitle>
           <CardDescription>Split matching files into a brand-new library in one confirmed action</CardDescription>
           <CardAction>
-            <Button size="sm" onClick={() => setExtOpen(true)}><Plus className="size-4" /> New...</Button>
+            <Button size="sm" onClick={() => { setExtErr(''); setExtOpen(true); }}><Plus className="size-4" /> New...</Button>
           </CardAction>
         </CardHeader>
         <CardContent>
@@ -381,12 +403,14 @@ export default function Libraries() {
         <div className="space-y-4 pt-2">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">New library name</label>
+              <label className="text-xs font-medium text-muted-foreground">New library name <span className="text-destructive">*</span></label>
               <Input value={extName} onChange={(e) => setExtName(e.target.value)} placeholder="e.g. Hebrew" />
+              <p className="text-[10px] text-muted-foreground">What will you call this new library?</p>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Destination path (folder will be created)</label>
+              <label className="text-xs font-medium text-muted-foreground">Destination path (folder will be created) <span className="text-destructive">*</span></label>
               <Input value={extPath} onChange={(e) => setExtPath(e.target.value)} placeholder="C:\Music\Hebrew" className="font-mono text-xs" />
+              <p className="text-[10px] text-muted-foreground">Required — the matching files will move here.</p>
             </div>
           </div>
 
@@ -433,7 +457,8 @@ export default function Libraries() {
             </div>
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex items-center justify-end gap-2">
+            {extErr && <p className="mr-auto text-xs font-medium text-destructive">{extErr}</p>}
             <Button variant="outline" onClick={dryExtract}><RefreshCw className="size-4" /> Dry run</Button>
             <Button disabled={!extPreview} onClick={() => setExtApply(true)}><MoveRight className="size-4" /> Move &amp; create</Button>
           </div>
@@ -472,7 +497,12 @@ export default function Libraries() {
         confirmLabel="Apply"
       />
 
-      <FileExplorer open={picker} onClose={() => setPicker(false)} onSelect={(p) => { setNewPath(p); setPicker(false); }} />
+      <FileExplorer open={picker} onClose={() => setPicker(false)} onSelect={(p, paths) => {
+        const list = (paths && paths.length) ? paths : [p];
+        setPicker(false);
+        if (list.length === 1) setNewPath(list[0]);
+        else addMany(list);
+      }} />
 
       <Modal open={newPath !== ""} onClose={() => setNewPath("")} title="Confirm Library Path" width="max-w-md">
         <div className="space-y-4 pt-2">

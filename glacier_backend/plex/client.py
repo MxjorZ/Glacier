@@ -4,6 +4,9 @@ All operations are non-destructive: statistics, search, ratings, and duplicate
 reporting. No automatic destructive actions are performed against Plex.
 """
 
+import time
+
+from .. import events
 from ..config import APP_NAME
 
 try:
@@ -55,24 +58,60 @@ def get_stats(url, token, section_name):
         section = _music_section(server, section_name)
         if section is None:
             return {"ok": False, "error": "No music section found"}
-        artists = section.all()
-        tracks = []
-        albums = 0
-        for a in artists:
-            albums += len(a.albums())
-            for alb in a.albums():
-                tracks.extend(alb.tracks())
-            if len(tracks) > 2000:  # guard against huge pulls
-                break
-        return {
-            "ok": True,
-            "section": getattr(section, "title", section_name),
-            "artists": len(artists),
-            "albums": albums,
-            "tracks": len(tracks),
-        }
+        return {"ok": True, **(_section_stats(section))}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}
+
+
+def _section_stats(section, track_cap=200000):
+    """Return {section, tracks, artists, albums} counting Plex's own DB.
+
+    Artists/albums are counted in full; tracks are counted but bounded by
+    ``track_cap`` so the call stays responsive on gigantic libraries.
+    """
+    albums = 0
+    tracks = 0
+    artists = section.all()
+    for a in artists:
+        try:
+            alb = a.albums()
+        except Exception:  # noqa: BLE001
+            alb = []
+        albums += len(alb)
+        for al in alb:
+            try:
+                tr = al.tracks()
+            except Exception:  # noqa: BLE001
+                tr = []
+            tracks += len(tr)
+            if tracks >= track_cap:
+                return {
+                    "section": getattr(section, "title", ""),
+                    "artists": len(artists),
+                    "albums": albums,
+                    "tracks": tracks,
+                    "approximate": True,
+                }
+    return {
+        "section": getattr(section, "title", ""),
+        "artists": len(artists),
+        "albums": albums,
+        "tracks": tracks,
+        "approximate": False,
+    }
+
+
+def get_all_music_stats(url, token):
+    """Return per-library statistics for every music section on the server (Stage 4 #13)."""
+    try:
+        server = _connect(url, token)
+        sections = [lib for lib in server.library.sections() if lib.type == "artist"]
+        out = [{"name": lib.title, **(_section_stats(lib))}
+               for lib in sections]
+        return {"ok": True, "libraries": out, "count": len(out)}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
 
 
 def search(url, token, query, limit=20):
@@ -162,5 +201,106 @@ def pull_ratings(url, token, section_name, limit=100000):
                     if len(out) >= limit:
                         return {"ok": True, "ratings": out, "count": len(out)}
         return {"ok": True, "ratings": out, "count": len(out)}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
+
+def test_connection(url, token):
+    """Validate a Plex connection with the given (possibly not-yet-saved)
+    credentials. Thin wrapper so the API can test before the user applies
+    settings. Returns the same shape as ``get_status``."""
+    return get_status(url, token)
+
+
+def get_sections(url, token):
+    """List every Plex library section plus its on-disk folder locations.
+
+    Used by the "load Plex folders" feature: given a server URL + token we can
+    enumerate the sections and their real folder paths, so Glacier can add them
+    as managed libraries without manually browsing the mount.
+    """
+    try:
+        server = _connect(url, token)
+        out = []
+        for lib in server.library.sections():
+            locations = []
+            try:
+                for loc in lib.locations:
+                    locations.append(getattr(loc, "path", None))
+            except Exception:  # noqa: BLE001
+                locations = []
+            out.append({
+                "name": lib.title,
+                "type": lib.type,
+                "key": getattr(lib, "key", None),
+                "count": (lib.totalSize
+                          if getattr(lib, "totalSize", None) is not None else None),
+                "locations": [p for p in locations if p],
+            })
+        return {"ok": True, "sections": out, "count": len(out)}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
+
+def export_library(url, token, section_name, limit=200000):
+    """Pull full metadata for a Plex music section into a JSON list.
+
+    Each record carries the fields Glacier + the user care about (artist, album,
+    title, track, year, duration, rating, genre), so the data can be exported /
+    analysed outside Plex without needing Portainer or the Plex UI.
+    """
+    try:
+        server = _connect(url, token)
+        section = _music_section(server, section_name)
+        if section is None:
+            return {"ok": False, "error": "No music section found"}
+        artists = section.all()
+        total_artists = len(artists)
+        out = []
+        for ai, artist in enumerate(artists):
+            try:
+                albums = artist.albums()
+            except Exception:  # noqa: BLE001
+                albums = []
+            for alb in albums:
+                try:
+                    tracks = alb.tracks()
+                except Exception:  # noqa: BLE001
+                    tracks = []
+                for t in tracks:
+                    genres = []
+                    try:
+                        genres = [g.tag for g in (t.genres or [])]
+                    except Exception:  # noqa: BLE001
+                        genres = []
+                    out.append({
+                        "artist": (getattr(t, "grandparentTitle", None)
+                                   or getattr(t, "artist", None)
+                                   or getattr(artist, "title", None) or ""),
+                        "album": getattr(alb, "title", None) or "",
+                        "title": getattr(t, "title", None) or "",
+                        "track": getattr(t, "index", None),
+                        "year": getattr(t, "year", None) or getattr(alb, "year", None),
+                        "duration_ms": getattr(t, "duration", None),
+                        "rating": getattr(t, "userRating", None),
+                        "genre": genres,
+                        "key": getattr(t, "key", None),
+                    })
+            if len(out) >= limit:
+                break
+            if ai % 5 == 0 or ai == total_artists - 1:
+                events.progress(ai + 1, total_artists,
+                                f"Exporting {getattr(section, 'title', section_name)}")
+        events.log(
+            f"Plex export pulled {len(out)} track(s) from "
+            f"'{getattr(section, 'title', section_name)}'", "success")
+        return {
+            "ok": True,
+            "section": getattr(section, "title", section_name),
+            "artists": total_artists,
+            "count": len(out),
+            "tracks": out,
+            "exported_at": time.time(),
+        }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}

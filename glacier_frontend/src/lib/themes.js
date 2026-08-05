@@ -141,7 +141,7 @@ export function applyThemeMode(mode) {
 }
 
 // Apply theme + mode + custom accent from a Glacier settings object.
-export function applySettingsTheme(settings) {
+export function applySettingsThemeLegacy(settings) {
   const theme = settings?.theme || {};
   applyThemeMode(theme.mode || 'dark');
   applyTheme(theme.accent || 'cyan', theme.accent_custom);
@@ -152,4 +152,39 @@ export function resetAccentOverrides() {
   const root = document.documentElement;
   root.style.removeProperty('--primary');
   root.style.removeProperty('--primary-foreground');
+}
+
+// ---- Stage 4 #16: Enhanced UI animations ---------------------------------
+const PRESETS = {
+  minimal: { duration: 120, easing: 'ease' },
+  modern: { duration: 200, easing: 'ease-out' },
+  material: { duration: 300, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' },
+  smooth: { duration: 360, easing: 'cubic-bezier(0.25, 1, 0.5, 1)' },
+  fast: { duration: 100, easing: 'ease-out' },
+  playful: { duration: 280, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
+};
+
+export const ANIM_PRESETS = Object.keys(PRESETS);
+
+// Apply animation preferences from a Glacier settings object to <html>.
+export function applyAnimations(settings) {
+  const a = settings?.animations || {};
+  const preset = PRESETS[a.preset] || PRESETS.modern;
+  const duration = a.duration_ms ?? preset.duration;
+  const easing = a.easing || preset.easing;
+  const root = document.documentElement;
+  root.style.setProperty('--anim-duration', `${duration}ms`);
+  root.style.setProperty('--anim-easing', easing);
+  root.setAttribute('data-anim', a.preset || 'modern');
+  root.setAttribute('data-anim-page', a.page_transitions === false ? 'off' : 'on');
+  root.setAttribute('data-anim-hover', a.hover === false ? 'off' : 'on');
+  root.setAttribute('data-anim-click', a.click === false ? 'off' : 'on');
+}
+
+// Apply theme + mode + accent + animations from a Glacier settings object.
+export function applySettingsTheme(settings) {
+  const theme = settings?.theme || {};
+  applyThemeMode(theme.mode || 'dark');
+  applyTheme(theme.accent || 'cyan', theme.accent_custom);
+  applyAnimations(settings);
 }

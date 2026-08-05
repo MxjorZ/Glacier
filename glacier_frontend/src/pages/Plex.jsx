@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Radio, RefreshCw, Search, Star, Columns2, Server, CheckCircle2, XCircle } from 'lucide-react';
+import { Radio, RefreshCw, Search, Star, Columns2, Server, CheckCircle2, XCircle, Disc3 } from 'lucide-react';
 import { api, fmtDate } from '../api.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardAction } from '@/components/ui/card.jsx';
 import { Button } from '@/components/ui/button.jsx';
@@ -11,12 +11,17 @@ import { toast } from '../toast.jsx';
 export default function Plex() {
   const [status, setStatus] = useState(null);
   const [stats, setStats] = useState(null);
+  const [libStats, setLibStats] = useState(null);
+  const [libStatsBusy, setLibStatsBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState(null);
   const [dups, setDups] = useState(null);
   const [busy, setBusy] = useState('');
   const [syncStatus, setSyncStatus] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [sections, setSections] = useState(null);
+  const [secBusy, setSecBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const loadStatus = async () => {
     setBusy('status');
@@ -48,6 +53,14 @@ export default function Plex() {
     try { setSyncStatus(await api.plex.syncStatus()); } catch { /* ignore */ }
   };
 
+  // Per-music-library statistics straight from Plex's database (Stage 4 #13).
+  const loadLibStats = async () => {
+    setLibStatsBusy(true);
+    try { setLibStats(await api.plex.libraryStats()); }
+    catch (e) { toast.error(e.message); }
+    finally { setLibStatsBusy(false); }
+  };
+
   const runSync = async () => {
     setSyncing(true);
     try {
@@ -72,7 +85,41 @@ export default function Plex() {
     finally { setSyncing(false); }
   };
 
-  useEffect(() => { loadStatus(); loadStats(); loadSyncStatus(); /* eslint-disable-line */ }, []);
+  useEffect(() => { loadStatus(); loadStats(); loadLibStats(); loadSyncStatus(); /* eslint-disable-line */ }, []);
+
+  // "Load Plex folders via Plex": enumerate sections + their on-disk locations
+  // using the saved server URL + token, then add them as Glacier libraries.
+  const loadSections = async () => {
+    setSecBusy(true);
+    try { setSections(await api.plex.sections()); }
+    catch (e) { toast.error(e.message); }
+    finally { setSecBusy(false); }
+  };
+
+  const addPlexLibrary = async (sec) => {
+    const p = (sec.locations || [])[0];
+    if (!p) { toast.error(`"${sec.name}" has no on-disk folder location`); return; }
+    try { await api.addLibrary(sec.name, p); toast.success(`Added "${sec.name}" (${p})`); }
+    catch (e) { toast.error(e.message); }
+  };
+
+  const doExport = async () => {
+    setExporting(true);
+    try {
+      const res = await api.plex.exportContent();
+      if (!res?.ok) { toast.error(res?.error || 'Export failed'); return; }
+      const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const slug = (res.section || 'Music').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+      a.href = url;
+      a.download = `plex-export-${slug}-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${res.count} track(s) from ${res.section}`);
+    } catch (e) { toast.error(e.message); }
+    finally { setExporting(false); }
+  };
 
   const connected = status?.ok || status?.connected || status?.reachable;
 
@@ -208,6 +255,102 @@ export default function Plex() {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Load Plex folders into Glacier + export */}
+      {/* Statistics for every music library, straight from Plex (Stage 4 #13) */}
+      <Card className="mb-4">
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center gap-2"><Disc3 className="size-4 text-primary" /> Plex music libraries</CardTitle>
+          <CardDescription>Per-library counts reported by your Plex server itself.</CardDescription>
+          <CardAction>
+            <Button variant="outline" size="sm" onClick={loadLibStats} disabled={libStatsBusy}>
+              <RefreshCw className={libStatsBusy ? 'size-3.5 animate-spin' : 'size-3.5'} /> Refresh
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {!libStats ? <Empty text="Fetching Plex library statistics…" /> :
+           libStats.error ? <p className="text-sm text-destructive">{libStats.error}</p> :
+           (libStats.libraries || []).length === 0 ? <Empty text="No music libraries found on this Plex server." /> : (
+            <div className="divide-y divide-border">
+              {(libStats.libraries || []).map((l) => (
+                <div key={l.name} className="grid grid-cols-2 items-center gap-3 py-2 sm:grid-cols-4">
+                  <div className="col-span-2 sm:col-span-1">
+                    <div className="text-sm font-semibold">{l.name}</div>
+                    {l.approximate && <div className="text-[10px] text-muted-foreground">(approximate for very large libraries)</div>}
+                  </div>
+                  <div className="text-right"><div className="text-xs text-muted-foreground">Tracks</div><div className="font-mono text-lg font-semibold">{l.tracks?.toLocaleString?.() ?? l.tracks ?? '—'}</div></div>
+                  <div className="text-right"><div className="text-xs text-muted-foreground">Albums</div><div className="font-mono text-lg font-semibold">{l.albums?.toLocaleString?.() ?? l.albums ?? '—'}</div></div>
+                  <div className="text-right"><div className="text-xs text-muted-foreground">Artists</div><div className="font-mono text-lg font-semibold">{l.artists?.toLocaleString?.() ?? l.artists ?? '—'}</div></div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2"><Server className="size-4 text-primary" /> Load folders from Plex</CardTitle>
+            <CardDescription>Token + server URL is enough — list your Plex sections and add their on-disk folders as Glacier libraries.</CardDescription>
+            <CardAction>
+              <Button variant="outline" size="sm" onClick={loadSections} disabled={secBusy}>
+                <RefreshCw className={secBusy ? 'size-3.5 animate-spin' : 'size-3.5'} /> Load sections
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {!sections ? (
+              <Empty text="Click “Load sections” to pull your Plex library folders." />
+            ) : sections.error ? (
+              <p className="text-sm text-destructive">{sections.error}</p>
+            ) : (sections.sections || []).length === 0 ? (
+              <Empty text="No sections returned." />
+            ) : (
+              <div className="max-h-80 space-y-1.5 overflow-auto">
+                {(sections.sections || []).map((sec) => (
+                  <div key={sec.key || sec.name} className="flex items-center justify-between gap-2 rounded-lg border bg-muted/20 px-2.5 py-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="truncate font-medium">{sec.name}</span>
+                        <Badge variant="secondary" className="capitalize">{sec.type}</Badge>
+                        {sec.count != null && <Badge variant="outline">{sec.count} items</Badge>}
+                      </div>
+                      <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                        {(sec.locations || []).join(', ') || 'no folder location'}
+                      </p>
+                    </div>
+                    <Button size="sm" variant="outline" disabled={!(sec.locations || []).length} onClick={() => addPlexLibrary(sec)}>
+                      Add to Glacier
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2"><Radio className="size-4 text-primary" /> Export library data</CardTitle>
+            <CardDescription>Download your Plex music as JSON — artist / album / title / year / duration / rating / genre. Progress shows in the footer.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-xs text-muted-foreground">
+              Downloads the currently configured music section as a JSON file you can
+              open in a spreadsheet or analyse yourself.
+            </p>
+            <div className="flex items-center justify-between">
+              <span className="text-sm">Full music section metadata</span>
+              <Button onClick={doExport} disabled={exporting}>
+                {exporting ? <RefreshCw className="size-4 animate-spin" /> : <Radio className="size-4" />}
+                {exporting ? 'Exporting…' : 'Export JSON'}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

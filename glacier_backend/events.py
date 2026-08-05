@@ -8,11 +8,25 @@ Event payloads are plain dicts; helpers provide the documented event shapes
 (connected, log, progress, done, job_state).
 """
 
+import contextvars
 import json
 import queue
 import threading
 import time
 from collections import deque
+
+# Job-id correlation: jobs set this (via events.set_job_id) on their worker
+# thread so progress events carry the originating job id for per-job tracking.
+_job_id_cv = contextvars.ContextVar('glacier_job_id', default=None)
+
+
+def set_job_id(job_id):
+    _job_id_cv.set(job_id)
+
+
+def get_job_id():
+    return _job_id_cv.get()
+
 
 
 class _Hub:
@@ -81,13 +95,21 @@ def log(message, level="info"):
 
 
 def progress(current, total, label=None):
-    """Broadcast a 'progress' event."""
-    hub.broadcast({"type": "progress", "current": current, "total": total, "label": label})
+    """Broadcast a 'progress' event (tagged with the current job id + time)."""
+    hub.broadcast({"type": "progress", "current": current, "total": total,
+                   "label": label, "job_id": get_job_id(), "ts": time.time()})
 
 
 def done(message="Operation complete", result=None):
     """Broadcast a 'done' event. Every job must end with this."""
-    hub.broadcast({"type": "done", "message": message, "result": result, "ts": time.time()})
+    hub.broadcast({"type": "done", "message": message, "result": result,
+                   "ts": time.time(), "job_id": get_job_id()})
+
+
+def error(message, job_id=None):
+    """Broadcast a dedicated 'error' event (surfaced in the top bar + log)."""
+    hub.broadcast({"type": "error", "message": message, "ts": time.time(),
+                   "job_id": job_id or get_job_id()})
 
 
 def job_state(state):

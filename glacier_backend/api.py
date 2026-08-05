@@ -16,11 +16,14 @@ from flask import request, jsonify, Response, stream_with_context
 
 from . import config
 from . import events
+from . import errors as errors_store
+from . import operations as operations_store
 from .jobs import supervisor
 from .settings import store
 from . import browser
 from .library import scanner, organizer, duplicates as dup_mod, exclusivity, extract
 from .tags import editor as tag_editor
+from .tags import genres as genre_ops
 from .cleanup import cleaner
 from .reports import exporter
 from .plex import client as plex_client
@@ -43,6 +46,16 @@ def _settings():
 
 def _json_body():
     return request.get_json(silent=True) or {}
+
+
+def _plex_creds(body):
+    """Resolve Plex credentials from a request body, falling back to saved
+    settings. Lets the client test/export with not-yet-saved credentials."""
+    s = store.get().get("plex", {})
+    url = (body.get("url") or s.get("url") or "").strip()
+    token = (body.get("token") or s.get("token") or "").strip()
+    section = (body.get("section") or s.get("music_section") or "").strip()
+    return url, token, section
 
 
 def _volatile(**kw):
@@ -91,6 +104,201 @@ def op_analyze(library_ids=None):
     return {"ok": True, "libraries": per_library, "total": totals}
 
 
+def op_quick_scan(library_ids=None):
+    """Fast change-detection scan for one or more libraries (Stage 4 #5).
+
+    Unlike a full analyze, only files that are new, modified, moved or deleted
+    since the last scan are processed — everything else is served from cache.
+    """
+    settings = store.get()
+    libs = _libs()
+    if library_ids:
+        libs = [l for l in libs if l["id"] in library_ids]
+    else:
+        libs = _enabled_libs()
+    if not libs:
+        raise ValueError("No libraries configured")
+    per_library = {}
+    ext = settings["extensions"]
+    excl = settings["excluded_folders"]
+    for lib in libs:
+        if not os.path.isdir(lib["path"]):
+            events.log(f"Skipping missing path: {lib['path']}", "warning")
+            per_library[lib["id"]] = {"error": "missing path"}
+            continue
+        try:
+            result = scanner.quick_scan(lib, ext, excl, emit=True)
+            per_library[lib["id"]] = result
+            # A full scan falls back to building full stats; otherwise report
+            # the cached track count so the dashboard stays current.
+            st = scanner.build_library_stats(
+                scanner.load_cache(lib["id"]))
+            store.set_scan(lib["id"], {
+                "at": time.time(),
+                "tracks": st["tracks"],
+                "errors": st["errors"],
+            })
+        except Exception as exc:  # noqa: BLE001
+            events.log(f"Quick scan failed for '{lib['name']}': {exc}", "error")
+            errors_store.store.report_exception(
+                f"Quick scan failed for '{lib['name']}'", module="scanner")
+            per_library[lib["id"]] = {"error": str(exc)}
+    total_new = sum(1 for r in per_library.values() if isinstance(r, dict)
+                    and not r.get("full_scan") for _ in r.get("new", []))
+    events.log(
+        f"Quick scan complete: {total_new} new file(s) across {len(libs)} libraries",
+        "success")
+    return {"ok": True, "libraries": per_library}
+
+
+def op_startup_scan():
+    """Automatic startup change-detection over all enabled libraries (Stage 4 #5)."""
+    try:
+        return op_quick_scan(None)
+    except Exception as exc:  # noqa: BLE001
+        events.log(f"Startup scan failed: {exc}", "warning")
+        return {"ok": True, "skipped": True, "error": str(exc)}
+
+
+def _library_tracks(library_id, settings, force=False):
+    """Resolve a library and return its inventory tracks.
+
+    ``force=True`` re-reads metadata from disk (accurate but slower); the default
+    uses the cached inventory. Returns ``(lib, tracks)``.
+    """
+    lib = store.get_library(library_id)
+    if not lib:
+        raise ValueError("Unknown library")
+    lib_settings = settings or store.get()
+    if force:
+        tracks = scanner.scan_library(
+            lib, lib_settings["extensions"], lib_settings["excluded_folders"],
+            emit=False, use_cache=False)
+    else:
+        tracks = scanner.get_inventory(
+            lib, lib_settings["extensions"], lib_settings["excluded_folders"])
+    return lib, tracks
+
+
+def _refresh_cache(lib):
+    """Re-read one library's metadata and persist the updated cache (used after
+    tag-writing jobs so lists stay accurate without a manual rescan)."""
+    s = store.get()
+    try:
+        scanner.scan_library(lib, s["extensions"], s["excluded_folders"],
+                             emit=False, use_cache=False)
+    except Exception:
+        pass
+
+
+def op_genre_replace(library_id, from_genre, to_genre):
+    lib, tracks = _library_tracks(library_id, store.get(), force=True)
+    paths = [t["path"] for t in tracks]
+    applied, skipped, errors = genre_ops.replace(paths, from_genre, to_genre)
+    if applied:
+        _refresh_cache(lib)
+    events.log(f"Genre replace '{from_genre}' -> '{to_genre}' "
+               f"in '{lib['name']}': {applied} updated, {skipped} unchanged", "success")
+    return {"ok": True, "library": lib["name"], "applied": applied,
+            "skipped": skipped, "errors": errors}
+
+
+def op_genre_merge(library_id, from_genres, to_genre):
+    lib, tracks = _library_tracks(library_id, store.get(), force=True)
+    paths = [t["path"] for t in tracks]
+    applied, skipped, errors = genre_ops.merge(paths, from_genres, to_genre)
+    if applied:
+        _refresh_cache(lib)
+    events.log(f"Genre merge into '{to_genre}' in '{lib['name']}': "
+               f"{applied} updated, {skipped} unchanged", "success")
+    return {"ok": True, "library": lib["name"], "applied": applied,
+            "skipped": skipped, "errors": errors}
+
+
+def op_genre_delete(library_id, genre):
+    lib, tracks = _library_tracks(library_id, store.get(), force=True)
+    paths = [t["path"] for t in tracks]
+    applied, skipped, errors = genre_ops.delete(paths, genre)
+    if applied:
+        _refresh_cache(lib)
+    events.log(f"Genre remove '{genre}' in '{lib['name']}': "
+               f"{applied} updated, {skipped} unchanged", "success")
+    return {"ok": True, "library": lib["name"], "applied": applied,
+            "skipped": skipped, "errors": errors}
+
+
+def op_genre_bulk_set(library_id, value):
+    lib, tracks = _library_tracks(library_id, store.get(), force=True)
+    paths = [t["path"] for t in tracks]
+    applied, skipped, errors = genre_ops.bulk_set(paths, value)
+    if applied:
+        _refresh_cache(lib)
+    events.log(f"Genre set '{value}' across '{lib['name']}': "
+               f"{applied} updated, {skipped} unchanged", "success")
+    return {"ok": True, "library": lib["name"], "applied": applied,
+            "skipped": skipped, "errors": errors}
+
+
+def op_genres_list(library_id):
+    """List genres for one library (read via the cached inventory)."""
+    lib, tracks = _library_tracks(library_id, store.get())
+    genres = genre_ops.collect(tracks)
+    return {"ok": True, "library": lib["name"], "library_id": library_id,
+            "genres": genres, "count": len(genres)}
+
+
+def op_tracks_page(library_id, page, per_page, sort="title", order="asc", query=""):
+    """Paged track table for the large-scale tag editor (Stage 4 #10).
+
+    Reads the (cached) inventory for one library, optionally filters by a text
+    query and sorts, then returns only the requested page.
+    """
+    lib, tracks = _library_tracks(library_id, store.get())
+    query = (query or "").strip().lower()
+
+    def has(tags, term):
+        for k in ("artist", "albumartist", "album", "title", "genre"):
+            if term in (tags.get(k) or "").lower():
+                return True
+        return False
+
+    if query:
+        tracks = [t for t in tracks
+                  if not t.get("error") and has(t.get("tags", {}), query)]
+
+    def sort_key(t):
+        tags = t.get("tags", {})
+        return (tags.get(sort) or "").lower() if sort in ("artist", "albumartist",
+                                                           "album", "title", "genre") \
+            else (t.get("path") or "")
+
+    tracks = sorted(tracks, key=sort_key, reverse=(order == "desc"))
+    total = len(tracks)
+    start = (page - 1) * per_page
+    page_tracks = tracks[start:start + per_page]
+
+    items = []
+    for t in page_tracks:
+        tags = t.get("tags", {})
+        items.append({
+            "path": t["path"],
+            "format": t.get("format"),
+            "artist": tags.get("artist") or "",
+            "albumartist": tags.get("albumartist") or "",
+            "album": tags.get("album") or "",
+            "title": tags.get("title") or "",
+            "track": tags.get("track") or "",
+            "genre": tags.get("genre") or "",
+            "year": tags.get("date") or "",
+            "rating": tags.get("rating") or "",
+            "has_cover": bool(t.get("has_cover")),
+        })
+    return {"ok": True, "library_id": library_id, "library": lib["name"],
+            "items": items, "total": total, "page": page, "per_page": per_page}
+
+
+
+
 def op_organize(library_id, dry_run, confirm=False):
     lib = store.get_library(library_id)
     if not lib:
@@ -124,9 +332,11 @@ def op_duplicates(library_id):
             "groups": groups, "count": len(groups)}
 
 
-def op_exclusivity():
+def op_exclusivity(library_ids=None):
     settings = store.get()
     libs = _enabled_libs()
+    if library_ids:
+        libs = [l for l in libs if l["id"] in library_ids]
     inventories = {}
     for lib in libs:
         if os.path.isdir(lib["path"]):
@@ -139,10 +349,12 @@ def op_exclusivity():
     return {"ok": True, "violations": violations, "count": len(violations)}
 
 
-def op_artist_exclusivity():
+def op_artist_exclusivity(library_ids=None):
     """Scan for artists present in more than one library (Stage 2)."""
     settings = store.get()
     libs = _enabled_libs()
+    if library_ids:
+        libs = [l for l in libs if l["id"] in library_ids]
     inventories = {}
     for lib in libs:
         if os.path.isdir(lib["path"]):
@@ -155,12 +367,14 @@ def op_artist_exclusivity():
     return {"ok": True, "groups": groups, "count": len(groups)}
 
 
-def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False):
+def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, library_ids=None):
     """Build (and optionally execute) artist exclusivity plans."""
     if not dry_run and not confirm:
         raise ValueError("Apply requires explicit confirmation (confirm=true)")
     settings = store.get()
     libs = _enabled_libs()
+    if library_ids:
+        libs = [l for l in libs if l["id"] in library_ids]
     inventories = {}
     for lib in libs:
         if os.path.isdir(lib["path"]):
@@ -198,11 +412,13 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False):
 
 
 def op_resolve(policy, preferred_library_id, move_target_library_id,
-               dry_run, confirm=False):
+               dry_run, confirm=False, library_ids=None):
     if not dry_run and not confirm:
         raise ValueError("Apply requires explicit confirmation (confirm=true)")
     settings = store.get()
     libs = _enabled_libs()
+    if library_ids:
+        libs = [l for l in libs if l["id"] in library_ids]
     inventories = {}
     for lib in libs:
         if os.path.isdir(lib["path"]):
@@ -344,6 +560,15 @@ def op_plex_rating_sync():
     return result
 
 
+def op_plex_export(url, token, section_name):
+    """Export a Plex music section's full metadata (as a background job so the
+    progress streams into the footer and the result is inspectable)."""
+    result = plex_client.export_library(url, token, section_name)
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error", "Plex export failed"))
+    return result
+
+
 def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=False):
     """Create a new library and move matching files into it (Stage 2)."""
     if not dry_run and not confirm:
@@ -400,12 +625,9 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
 
 # --- Job dispatch helper -------------------------------------------------
 
-def _start(operation, callback, *args, confirm_ok=True):
-    if supervisor.running():
-        return _volatile(**supervisor.reject()), 409
-    ok, job = supervisor.start(operation, callback, *args)
-    if not ok:
-        return _volatile(**supervisor.reject()), 409
+def _start(operation, callback, *args, library=None, **kwargs):
+    # Concurrency supported: always start a new job (no single-job lock).
+    ok, job = supervisor.start(operation, callback, *args, library=library, **kwargs)
     return _volatile(ok=True, job=job), 202
 
 
@@ -448,8 +670,9 @@ def register_routes(app):
 
     @app.get("/api/jobs/current")
     def job_current():
-        cur = supervisor.current
-        return jsonify({"running": supervisor.running(), "job": cur})
+        return jsonify({"running": supervisor.running(),
+                        "jobs": supervisor.all_running(),
+                        "job": supervisor.current})
 
     @app.get("/api/jobs/history")
     def job_history():
@@ -462,6 +685,30 @@ def register_routes(app):
     def logs():
         limit = request.args.get("limit", default=200, type=int)
         return jsonify(events.hub.history(limit))
+
+    # --- Global Error Center (Stage 4 #2) --------------------------------
+    @app.get("/api/errors")
+    def list_errors():
+        return jsonify({"ok": True, "errors": errors_store.store.list()})
+
+    @app.delete("/api/errors")
+    def clear_errors():
+        errors_store.store.clear()
+        return jsonify({"ok": True, "errors": []})
+
+    @app.get("/api/errors/export")
+    def export_errors():
+        import json
+        data = json.dumps(errors_store.store.list(), indent=2, ensure_ascii=False)
+        return Response(data, mimetype="application/json",
+                        headers={"Content-Disposition": "attachment; filename=glacier_errors.json"})
+
+    # --- Recent operations (Stage 4 #8) ----------------------------------
+    @app.get("/api/operations")
+    def list_operations():
+        limit = request.args.get("limit", default=100, type=int)
+        return jsonify({"ok": True, "operations": operations_store.store.list(limit)})
+
 
     # --- Settings -----------------------------------------------------
     @app.get("/api/settings")
@@ -567,6 +814,13 @@ def register_routes(app):
         ids = body.get("library_ids") or None
         return _start("analyze", op_analyze, ids)
 
+    @app.post("/api/run/quick-scan")
+    def run_quick_scan():
+        body = _json_body()
+        ids = body.get("library_ids") or None
+        return _start("quick-scan", op_quick_scan, ids)
+
+
     @app.post("/api/run/organize")
     def run_organize():
         body = _json_body()
@@ -607,7 +861,9 @@ def register_routes(app):
 
     @app.post("/api/run/exclusivity")
     def run_exclusivity():
-        return _start("exclusivity", op_exclusivity)
+        body = _json_body()
+        ids = body.get("library_ids") or None
+        return _start("exclusivity", op_exclusivity, ids)
 
     @app.post("/api/run/resolve-exclusivity")
     def run_resolve():
@@ -617,12 +873,15 @@ def register_routes(app):
         target = body.get("move_target_library_id")
         dry = bool(body.get("dry_run", True))
         confirm = bool(body.get("confirm", False))
+        ids = body.get("library_ids") or None
         return _start("resolve-exclusivity", op_resolve,
-                      policy, pref, target, dry, confirm)
+                      policy, pref, target, dry, confirm, library_ids=ids)
 
     @app.post("/api/run/artist-exclusivity")
     def run_artist_exclusivity():
-        return _start("artist-exclusivity", op_artist_exclusivity)
+        body = _json_body()
+        ids = body.get("library_ids") or None
+        return _start("artist-exclusivity", op_artist_exclusivity, ids)
 
     @app.post("/api/run/resolve-artist-exclusivity")
     def run_resolve_artist():
@@ -631,8 +890,9 @@ def register_routes(app):
         pref = body.get("preferred_library_id", "")
         dry = bool(body.get("dry_run", True))
         confirm = bool(body.get("confirm", False))
+        ids = body.get("library_ids") or None
         return _start("resolve-artist-exclusivity", op_artist_resolve,
-                      policy, pref, dry, confirm)
+                      policy, pref, dry, confirm, library_ids=ids)
 
     @app.post("/api/run/library_extract_move")
     def run_extract_move():
@@ -695,6 +955,71 @@ def register_routes(app):
         library_id = body.get("library_id")
         return _start("report", op_report, library_id)
 
+    # --- Genre manager (Stage 4 #9) --------------------------------------
+    @app.post("/api/genres")
+    def genres_list():
+        body = _json_body()
+        library_id = body.get("library_id")
+        if not library_id:
+            return jsonify({"ok": False, "error": "library_id is required"}), 400
+        try:
+            return jsonify(op_genres_list(library_id))
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+    @app.post("/api/run/genres/replace")
+    def run_genre_replace():
+        body = _json_body()
+        library_id = body.get("library_id")
+        if not library_id or not body.get("from") or not body.get("to"):
+            return jsonify({"ok": False, "error": "library_id, from and to are required"}), 400
+        return _start("genres", op_genre_replace, library_id, body["from"], body["to"],
+                      library=store.get_library(library_id)["name"])
+
+    @app.post("/api/run/genres/merge")
+    def run_genre_merge():
+        body = _json_body()
+        library_id = body.get("library_id")
+        if not library_id or not body.get("from") or not body.get("to"):
+            return jsonify({"ok": False, "error": "library_id, from (list) and to are required"}), 400
+        return _start("genres", op_genre_merge, library_id, list(body["from"]), body["to"],
+                      library=store.get_library(library_id)["name"])
+
+    @app.post("/api/run/genres/delete")
+    def run_genre_delete():
+        body = _json_body()
+        library_id = body.get("library_id")
+        if not library_id or not body.get("genre"):
+            return jsonify({"ok": False, "error": "library_id and genre are required"}), 400
+        return _start("genres", op_genre_delete, library_id, body["genre"],
+                      library=store.get_library(library_id)["name"])
+
+    @app.post("/api/run/genres/bulk-set")
+    def run_genre_bulk_set():
+        body = _json_body()
+        library_id = body.get("library_id")
+        if not library_id:
+            return jsonify({"ok": False, "error": "library_id is required"}), 400
+        return _start("genres", op_genre_bulk_set, library_id, body.get("value", ""),
+                      library=store.get_library(library_id)["name"])
+
+    # --- Large-scale tag editor pagination (Stage 4 #10) -----------------
+    @app.post("/api/tracks")
+    def tracks_page():
+        body = _json_body()
+        library_id = body.get("library_id")
+        if not library_id:
+            return jsonify({"ok": False, "error": "library_id is required"}), 400
+        page = max(1, int(body.get("page", 1) or 1))
+        per_page = min(200, max(1, int(body.get("per_page", 50) or 50)))
+        try:
+            return jsonify(op_tracks_page(
+                library_id, page, per_page,
+                body.get("sort", "title"), body.get("order", "asc"),
+                body.get("query", "")))
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
     # --- Tags --------------------------------------------------------
     @app.post("/api/tag-list")
     def tag_list():
@@ -728,6 +1053,13 @@ def register_routes(app):
         s = store.get()["plex"]
         return jsonify(plex_client.get_stats(s["url"], s["token"], s["music_section"]))
 
+    @app.post("/api/plex/library-stats")
+    def plex_library_stats():
+        """Per-music-library statistics straight from the Plex server (Stage 4 #13)."""
+        s = store.get()["plex"]
+        return jsonify(plex_client.get_all_music_stats(s["url"], s["token"]))
+
+
     @app.post("/api/plex/search")
     def plex_search():
         body = _json_body()
@@ -749,6 +1081,37 @@ def register_routes(app):
     @app.post("/api/plex/sync-ratings")
     def plex_sync_ratings():
         return _start("plex-rating-sync", op_plex_rating_sync)
+
+    @app.post("/api/plex/test")
+    def plex_test():
+        """Test a Plex connection with the given (possibly not-yet-saved)
+        credentials, so the user can validate before applying settings."""
+        url, token, _ = _plex_creds(_json_body())
+        return jsonify(plex_client.test_connection(url, token))
+
+    @app.post("/api/plex/sections")
+    def plex_sections():
+        """List Plex library sections + their on-disk folder locations, so the
+        user can load Plex folders into Glacier without a manual file browse."""
+        url, token, _ = _plex_creds(_json_body())
+        return jsonify(plex_client.get_sections(url, token))
+
+    @app.post("/api/run/plex-export")
+    def plex_export():
+        """Export full metadata for a Plex music section (background job)."""
+        url, token, section = _plex_creds(_json_body())
+        return _start("plex-export", op_plex_export, url, token, section)
+
+    @app.post("/api/plex/export")
+    def plex_export_content():
+        """Synchronous Plex export that streams progress over SSE while it pulls,
+        then returns the full metadata so the client can download it."""
+        url, token, section = _plex_creds(_json_body())
+        result = plex_client.export_library(url, token, section)
+        if not result.get("ok"):
+            return jsonify(result), 400
+        return jsonify(result)
+
 
     @app.get("/api/plex/sync-status")
     def plex_sync_status():
