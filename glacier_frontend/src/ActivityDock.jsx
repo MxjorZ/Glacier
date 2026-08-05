@@ -1,5 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronUp, ChevronDown, Loader2, AlertTriangle, Search, Copy, Download, GripHorizontal, Filter } from 'lucide-react';
+import { ChevronUp, ChevronDown, Loader2, AlertTriangle, Search, Copy, Download, GripHorizontal, Filter, Square } from 'lucide-react';
+import { api } from './api.js';
+import { toast } from './toast.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import { Progress } from '@/components/ui/progress.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
@@ -55,6 +57,33 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
   const [height, setHeight] = useState(340);
   const [, tick] = useState(0);
   const logRef = useRef(null);
+
+  // Right-click context menu for a running job (Stage 4 fix): lets the user
+  // terminate the job.
+  const [jobMenu, setJobMenu] = useState(null);
+  useEffect(() => {
+    const close = () => setJobMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, []);
+
+  const terminateJob = async () => {
+    if (!jobMenu) return;
+    try {
+      const res = await api.terminateJob(jobMenu.id);
+      if (res?.cancelled) toast.success('Terminate requested — stopping job…');
+      else toast.error(res?.error || 'Job is no longer running');
+    } catch (e) {
+      toast.error(e.message);
+    }
+    setJobMenu(null);
+  };
 
   // Smooth per-job processing speed from progress event timestamps.
   const [rates, setRates] = useState({});
@@ -215,7 +244,11 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
               </div>
               {jobList.length === 0 && <p className="text-xs text-muted-foreground">No jobs running.</p>}
               {jobList.map((j) => (
-                <div key={j.id} className="rounded-lg border bg-card/40 p-2 text-xs">
+                <div key={j.id} onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setJobMenu({ id: j.id, x: e.clientX, y: e.clientY });
+                }} className="cursor-context-menu rounded-lg border bg-card/40 p-2 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="flex-1 truncate font-medium">{j.operation}</span>
                     <span className="flex items-center gap-1.5 font-mono text-muted-foreground">
@@ -259,6 +292,17 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Running-job context menu */}
+      {jobMenu && (
+        <div style={{ top: jobMenu.y, left: jobMenu.x }} className="fixed z-[60] w-48 overflow-hidden rounded-lg border bg-popover p-1 shadow-xl"
+          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+          <button onClick={terminateJob}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium text-destructive hover:bg-accent">
+            <Square className="size-4" /> Terminate job
+          </button>
         </div>
       )}
     </div>

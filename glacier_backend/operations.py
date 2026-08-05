@@ -24,7 +24,7 @@ class OperationStore:
 
     def _load(self):
         try:
-            with open(self._path, "r", encoding="utf-8") as fh:
+            with open(self._path, "r", encoding="utf-8-sig") as fh:
                 data = json.load(fh)
             return data if isinstance(data, list) else []
         except Exception:

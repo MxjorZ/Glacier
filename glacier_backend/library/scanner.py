@@ -17,6 +17,7 @@ import threading
 
 from . import metadata
 from .. import events
+from ..cancel import is_cancelled, JobCancelled
 
 CACHE_DIR = Path.home() / ".glacier_cache"
 _lock = threading.Lock()
@@ -114,6 +115,8 @@ def scan_library(lib, extensions, excluded, emit=True, use_cache=True):
             if os.path.splitext(name)[1].lower() not in extensions:
                 continue
             processed += 1
+            if processed % 10 == 0 and is_cancelled():
+                raise JobCancelled()
             try:
                 st = os.stat(full)
                 rec = metadata.read(full)
@@ -292,6 +295,8 @@ def quick_scan(lib, extensions, excluded, emit=True):
     processed = 0
     for p in sorted(changed_paths):
         processed += 1
+        if processed % 10 == 0 and is_cancelled():
+            raise JobCancelled()
         try:
             st = os.stat(p)
             rec = metadata.read(p)

@@ -53,12 +53,14 @@ export default function FileExplorer({ open, onClose, onSelect }) {
   const [audioOnly, setAudioOnly] = useState(false);
   const [query, setQuery] = useState('');
   const [filePage, setFilePage] = useState(FILE_PAGE);
+  const [focusIdx, setFocusIdx] = useState(0);
 
   const load = useCallback((p) => {
     setBusy(true);
     setError('');
     setChecked([]);
     setFilePage(FILE_PAGE);
+    setFocusIdx(0);
     api.listDir(p)
       .then((d) => { setPath(d.path || ''); setEntries(d); })
       .catch((e) => setError(e.message || 'Cannot read this folder (permission?)'))
@@ -119,6 +121,33 @@ export default function FileExplorer({ open, onClose, onSelect }) {
     const primary = paths[0];
     onSelect(primary, paths);
     onClose();
+  };
+
+  // Keyboard navigation inside the file list (click-free folder picking).
+  // ArrowUp/Down move a highlight, Enter opens the focused folder, Backspace
+  // goes up a level, Escape closes, and Space toggles the focused item.
+  const onKeyDown = (e) => {
+    if (!gridItems.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusIdx((i) => (i + 1) % gridItems.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusIdx((i) => (i - 1 + gridItems.length) % gridItems.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const it = gridItems[focusIdx];
+      if (it && it.kind === 'dir') openDir(it.path);
+    } else if (e.key === ' ') {
+      e.preventDefault();
+      const it = gridItems[focusIdx];
+      if (it) toggle(it.path);
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      goUp();
+    } else if (e.key === 'Escape') {
+      onClose();
+    }
   };
 
   return (
@@ -196,6 +225,7 @@ export default function FileExplorer({ open, onClose, onSelect }) {
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-2">
                   {gridItems.map((it) => (
                     <Tile key={it.path} it={it} checked={isChecked(it.path)}
+                      focused={gridItems.indexOf(it) === focusIdx}
                       onToggle={() => toggle(it.path)}
                       onOpen={() => { if (it.kind === 'dir') openDir(it.path); }} />
                   ))}
@@ -207,6 +237,7 @@ export default function FileExplorer({ open, onClose, onSelect }) {
                 <div className="divide-y divide-border/60">
                   {gridItems.map((it) => (
                     <Row key={it.path} it={it} checked={isChecked(it.path)}
+                      focused={gridItems.indexOf(it) === focusIdx}
                       onToggle={() => toggle(it.path)}
                       onOpen={() => { if (it.kind === 'dir') openDir(it.path); }} />
                   ))}
@@ -230,9 +261,10 @@ export default function FileExplorer({ open, onClose, onSelect }) {
 
 // Big-icon tile for the grid. A single click does nothing; the checkbox on the
 // top-left selects, and double-clicking opens a folder.
-function Tile({ it, checked, onToggle, onOpen }) {
+function Tile({ it, checked, focused, onToggle, onOpen }) {
   return (
-    <div className="group relative flex select-none flex-col items-center rounded-lg border p-2 pt-3 hover:bg-accent/50"
+    <div className={cn('group relative flex select-none flex-col items-center rounded-lg border p-2 pt-3 hover:bg-accent/50',
+      focused && 'ring-2 ring-primary/60')}
       onDoubleClick={onOpen} title={it.path}>
       <button
         className="absolute left-1.5 top-1.5 z-10 rounded p-0.5 hover:bg-muted"
@@ -262,9 +294,10 @@ function Tile({ it, checked, onToggle, onOpen }) {
 }
 
 // Compact list row. Same interaction rules as the grid tile.
-function Row({ it, checked, onToggle, onOpen }) {
+function Row({ it, checked, focused, onToggle, onOpen }) {
   return (
-    <div className="group flex items-center gap-2 rounded px-1.5 py-1.5 hover:bg-accent/40"
+    <div className={cn('group flex items-center gap-2 rounded px-1.5 py-1.5 hover:bg-accent/40',
+      focused && 'ring-1 ring-primary/50 bg-accent/30')}
       onDoubleClick={onOpen} title={it.path}>
       <button className="rounded p-0.5 hover:bg-muted" onClick={(e) => { e.stopPropagation(); onToggle(); }} aria-label={checked ? 'Deselect' : 'Select'} tabIndex={-1}>
         <Checkbox checked={checked} className="pointer-events-none size-3.5" />

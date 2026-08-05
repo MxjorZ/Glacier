@@ -365,3 +365,25 @@ npm run build
 npm run dev
 ```
 
+## Recent fixes (this session)
+- **Cold-start settings not loading (blocked Library + Tags pages).** The
+  persistent `~/.glacier_settings.json` could carry a UTF-8 BOM (written by
+  PowerShell/older editors). `settings.py` read it with `encoding="utf-8"`, so
+  `json.load` raised `JSONDecodeError`, which was silently swallowed and reset
+  the store to defaults (empty libraries) on every fresh start. Reads in
+  `settings.py`, `errors.py` and `operations.py` now use `utf-8-sig` to tolerate
+  the BOM. Verified: `Store()` now returns the saved library; `/api/libraries`,
+  `/api/tracks` and `/api/tag-read` all work over HTTP after a cold server start.
+- **Job termination (right-click), Stage 4 fix.** `cancel.py` provides a per-job
+  `threading.Event`; `jobs.Supervisor.cancel()` arms it and the scanner polls
+  `is_cancelled()` every 10 files, raising `JobCancelled` → recorded as
+  `cancelled`. Exposed as `POST /api/jobs/<id>/terminate`; `ActivityDock.jsx`
+  shows a Terminate item on right-click of a running job. Verified end-to-end via
+  `probe_terminate.py` (job records `status=cancelled`), and `npm run build`
+  succeeds.
+- **Page refresh no longer triggers an analyze.** Confirmed the Libraries page's
+  mount effect only calls the read-only `/api/libraries/status`; the only
+  automatic scan is the one-time backend "Startup scan" launched ~20s after the
+  server starts (`app.py`), independent of any browser refresh.
+
+

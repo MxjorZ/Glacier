@@ -26,9 +26,14 @@ export default function Dashboard({ onNavigate }) {
   useEffect(() => {
     api.settings().then(setSettings).catch(() => {});
     api.operations(20).then((o) => setOps(o.operations || [])).catch(() => {});
+    // Load cached statistics instantly instead of kicking off a scan on every
+    // page load (previously a full analyze started whenever the dashboard
+    // mounted, e.g. on a plain browser refresh).
+    api.stats().then((r) => setTotal(r.total)).catch(() => {});
   }, []);
 
   const refreshOps = () => api.operations(20).then((o) => setOps(o.operations || [])).catch(() => {});
+  const refreshStats = () => api.stats().then((r) => setTotal(r.total)).catch(() => {});
 
   const analyze = async (quick = false) => {
     const ids = libId === '__all__' ? undefined : (libId ? [libId] : undefined);
@@ -37,10 +42,10 @@ export default function Dashboard({ onNavigate }) {
     if (res?.ok) toast.success(quick ? 'Quick scan complete' : `Analysis complete: ${res.total?.tracks ?? 0} tracks`);
     else if (res?.error) toast.error(res.error);
     refreshOps();
+    refreshStats();
   };
 
-  useEffect(() => { if (!total) analyze(false); /* eslint-disable-line */ }, []);
-  useEffect(() => { if (total) refreshOps(); }, [running]);
+  useEffect(() => { refreshOps(); }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const libs = settings?.libraries || [];
 //__DASH_A__

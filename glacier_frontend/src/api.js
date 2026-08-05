@@ -69,6 +69,8 @@ export const api = {
   tracks: (body) => req('POST', '/api/tracks', body),
   genres: (library_id) => req('POST', '/api/genres', { library_id }),
   genreOps: (op, body) => req('POST', `/api/run/genres/${op}`, body),
+  stats: () => req('GET', '/api/stats'),
+  terminateJob: (id) => req('POST', `/api/jobs/${id}/terminate`),
 };
 
 // ---- Formatters (Stage 4 #11): one consistent DD/MM/YYYY HH:mm:ss format -----

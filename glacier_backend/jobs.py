@@ -12,6 +12,7 @@ import time
 from . import events
 from . import errors as errors_store
 from . import operations as operations_store
+from . import cancel as cancel
 
 
 def _new_id():
@@ -31,6 +32,19 @@ class Supervisor:
     def all_running(self):
         with self._lock:
             return [dict(j) for j in self._jobs.values()]
+
+    def cancel(self, job_id):
+        """Request termination of a running job (cooperative).
+
+        Returns True if a running job with that id exists and a termination
+        was armed; False otherwise (e.g. it already finished).
+        """
+        with self._lock:
+            if job_id not in self._jobs:
+                return False
+        cancel.request(job_id)
+        events.log(f"Terminate requested for job {self._jobs[job_id].get('operation', job_id)}", "warning")
+        return True
 
     @property
     def current(self):
@@ -65,6 +79,7 @@ class Supervisor:
         with self._lock:
             self._jobs[job["id"]] = job
 
+        cancel.register(job["id"])
         events.job_state({**job, "running": True})
 
         def record_operation(status, result, duration):
@@ -79,6 +94,8 @@ class Supervisor:
         def runner():
             events.set_job_id(job["id"])
             try:
+                if cancel.is_cancelled(job["id"]):
+                    raise cancel.JobCancelled()
                 result = callback(*args, **kwargs)
                 with self._lock:
                     job["result"] = result
@@ -89,6 +106,19 @@ class Supervisor:
                 record_operation("complete", result, job["end"] - job["start"])
                 events.done("Operation complete", result)
                 events.job_state({**job, "running": False})
+            except cancel.JobCancelled:
+                with self._lock:
+                    job["result"] = {"ok": False, "error": "Job terminated",
+                                     "cancelled": True}
+                    job["status"] = "cancelled"
+                    job["end"] = time.time()
+                    self._jobs.pop(job["id"], None)
+                    self._history = (self._history + [dict(job)])[-200:]
+                record_operation("cancelled", job["result"],
+                                 job["end"] - job["start"])
+                events.log(f"Job '{operation}' terminated by user", "warning")
+                events.done("Operation cancelled", job["result"])
+                events.job_state({**job, "running": False, "status": "cancelled"})
             except Exception as exc:  # noqa: BLE001
                 with self._lock:
                     job["result"] = {"ok": False, "error": str(exc)}
@@ -104,6 +134,7 @@ class Supervisor:
                 events.done(f"Operation failed: {exc}", job["result"])
                 events.job_state({**job, "running": False})
             finally:
+                cancel.unregister(job["id"])
                 events.set_job_id(None)
 
         threading.Thread(target=runner, daemon=True).start()

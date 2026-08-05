@@ -638,3 +638,35 @@ Legend: `[x]` complete · `[~]` partial / adapted · `[ ]` not started.
 - API `GET /api/operations`. Dashboard "Recent operations" shows friendly names,
   `Today HH:mm` / `Yesterday HH:mm` / `DD/MM/YYYY HH:mm` plus duration.
 
+## 9. Stage 4 — Follow-up fixes `[x]`
+
+After the initial Stage 4 implementation a few issues were found and fixed:
+
+- **FileExplorer `onKeyDown` crash** — `FileExplorer.jsx` referenced an undefined
+  `onKeyDown` handler on the file-list scroll container, which caused a runtime
+  `ReferenceError` on every page that mounted the file explorer (Libraries and
+  Tags). Fixed by implementing a proper keyboard-navigation handler (ArrowUp/Down
+  cycles a highlight, Enter opens a folder, Space toggles selection, Backspace
+  goes up a level, Escape closes) and passing a `focused` prop to the grid/list
+  items for visual feedback.
+
+- **Dashboard auto‑analyze on every page refresh** — `Dashboard.jsx` had an
+  unconditional `useEffect` that called `analyze(false)` on mount, starting a
+  full library scan every time the page loaded (including plain browser
+  refreshes). Replaced with a cached `GET /api/stats` endpoint that aggregates
+  the persisted inventory cache without re‑reading files. The dashboard now
+  loads instant stats on mount and only runs a scan when the user explicitly
+  clicks Scan / Quick scan.
+
+- **Job termination** — Added `POST /api/jobs/<id>/terminate` and a cooperative
+  cancellation mechanism (`glacier_backend/cancel.py`) using a per‑job
+  `threading.Event`. The job supervisor catches `JobCancelled` and records the
+  job as `cancelled` in the history. Long‑running scan loops in the scanner
+  (`scan_library`, `quick_scan`) check the flag every 10 files. The
+  `ActivityDock` now shows a right‑click context menu on each running job card
+  with a **Terminate job** option.
+
+- **„New library” missing `enabled` flag** — `store.add_library()` did not
+  include the `enabled` field, causing the raw API response to omit it (the
+  frontend used `?? true` as a fallback, so it was only a cosmetic issue).
+  Fixed by setting `"enabled": True` on creation.

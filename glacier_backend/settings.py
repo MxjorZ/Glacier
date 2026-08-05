@@ -106,7 +106,10 @@ class Store:
         with self._lock:
             try:
                 if self._path.exists():
-                    with open(self._path, "r", encoding="utf-8") as fh:
+                    # utf-8-sig tolerates a UTF-8 BOM (PowerShell/older editors
+                    # can write one), which would otherwise break json.load and
+                    # silently reset the settings to defaults on cold start.
+                    with open(self._path, "r", encoding="utf-8-sig") as fh:
                         self._data = _normalize(json.load(fh))
                 else:
                     self._data = copy.deepcopy(config.DEFAULT_SETTINGS)
@@ -159,6 +162,7 @@ class Store:
                 "name": name or path,
                 "path": path,
                 "scan": None,
+                "enabled": True,
             }
             self._data["libraries"].append(lib)
         self.save()

@@ -680,6 +680,40 @@ def register_routes(app):
         history = supervisor.history
         return jsonify({"jobs": history[-limit:]})
 
+    @app.post("/api/jobs/<job_id>/terminate")
+    def terminate_job(job_id):
+        """Request termination of a running background job (Stage 4 fix)."""
+        try:
+            job_id = int(job_id)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Invalid job id",
+                            "cancelled": False}), 400
+        if supervisor.cancel(job_id):
+            return jsonify({"ok": True, "cancelled": True, "job_id": job_id})
+        return jsonify({"ok": False, "error": "No running job with that id",
+                        "cancelled": False, "job_id": job_id}), 404
+
+    @app.get("/api/stats")
+    def dashboard_stats():
+        """Cached aggregate statistics (no re-scan) for the dashboard.
+
+        Reads each enabled library's persisted inventory cache so the stat
+        cards populate instantly without starting a scan.
+        """
+        settings = store.get()
+        per = {}
+        all_tracks = []
+        for lib in _enabled_libs():
+            tracks = scanner.load_cache(lib["id"])
+            all_tracks.extend(tracks)
+            per[lib["id"]] = {
+                "id": lib["id"], "name": lib["name"],
+                "tracks": len(tracks),
+                "stats": scanner.build_library_stats(tracks),
+            }
+        totals = scanner.build_library_stats(all_tracks)
+        return jsonify({"ok": True, "total": totals, "per_library": per})
+
 
     @app.get("/api/logs")
     def logs():
