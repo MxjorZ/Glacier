@@ -400,6 +400,34 @@ npm run dev
   Also hardened `useSSE.js` to log "Live stream reconnected" on `onopen` and to
   re-seed running jobs via `api.currentJob()` on every reconnect, so a job that
   starts while the stream briefly drops reappears in the dock.
+- **Terminate only "requested" but job kept running; features felt like they
+  "do nothing".** Two causes, both fixed:
+  * Cancellation was cooperative and sparse, so a scan only checked
+    `is_cancelled()` every 10 files and *not at all* in the fingerprint /
+    change-detection / index walks or in extract / cleanup / plex-sync loops.
+    Added `is_cancelled()` checks throughout the scanner (`_fingerprint`,
+    `_index_files`, `scan_library` per file, `quick_scan`) and in
+    `extract.execute_extract`, `cleaner.find_empty_folders` /
+    `apply_remove_dirs`, and `plex.sync.sync_ratings`. Scans now stop in
+    ~0.05 s and record `cancelled`.
+  * The broken SSE had made all background jobs (artist exclusivity, cleanup,
+    plex, extract…) look like they did nothing, because no progress/completion
+    ever reached the UI. With SSE fixed, those jobs now stream feedback again.
+- **App "resets" when changing pages; no memory of selections/loaded state.**
+  `App.jsx` force-remounted the active page via `key={page}` and unmounted every
+  non-active page, so each navigation threw away all local state and live view
+  state. All pages are now kept mounted and toggled with CSS `display`, so
+  selections, loaded data and background-progress views persist across page
+  switches (SSE is global in App, so jobs stay live regardless of the page).
+- **Faster scanning.** `scan_library` no longer does a separate full-tree walk
+  just to count files — the fingerprint walk now returns the count too, cutting
+  a full analyze from 3 tree walks to 2.
+- **Plex rating sync ran repeatedly / ignored the off switch.** The background
+  timer now cancels any in-flight `plex-rating-sync` when the feature is
+  toggled off (and never stacks a second sync while one runs), and the sync
+  loop is cancellable. The sync only runs when enabled and the configured
+  interval has elapsed.
+
 
 
 

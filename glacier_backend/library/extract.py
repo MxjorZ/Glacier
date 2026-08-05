@@ -121,6 +121,8 @@ def execute_extract(plan, target_path):
     moved = 0
     errors = []
     for i, item in enumerate(plan):
+        if is_cancelled():
+            raise JobCancelled()
         try:
             dest = _unique_basename(target_path, os.path.basename(item["source"]))
             shutil.move(item["source"], dest)

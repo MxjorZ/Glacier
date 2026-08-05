@@ -13,6 +13,7 @@ All cleaning is preview-first; deletion only happens on explicit apply.
 import os
 
 from .. import events
+from ..cancel import is_cancelled, JobCancelled
 from ..library import metadata
 
 REQUIRED_TAGS = ["artist", "title"]
@@ -23,6 +24,8 @@ def find_empty_folders(root, excluded):
     excluded_lower = {e.lower() for e in excluded if e}
     empty = []
     for dirpath, dirnames, filenames in os.walk(root):
+        if is_cancelled():
+            raise JobCancelled()
         dirnames[:] = [d for d in dirnames
                        if d.lower() not in excluded_lower and not d.startswith(".")]
         has_audio = any(
@@ -42,6 +45,8 @@ def apply_remove_dirs(dirs):
     removed = 0
     errors = []
     for d in sorted(dirs, key=len, reverse=True):
+        if is_cancelled():
+            raise JobCancelled()
         try:
             if os.path.isdir(d) and not os.listdir(d):
                 os.rmdir(d)

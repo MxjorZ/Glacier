@@ -24,11 +24,18 @@ _lock = threading.Lock()
 
 
 def _fingerprint(root, extensions, excluded):
-    """Lightweight structural fingerprint: sum of (name,size,mtime) of matches."""
+    """Lightweight structural fingerprint: sum of (name,size,mtime) of matches.
+
+    Returns ``(fingerprint, count)`` so callers can reuse the file count and
+    avoid a second directory walk. Also polls the cancellation flag so an
+    in-progress scan aborts promptly when the user terminates the job.
+    """
     total = 0
     count = 0
     excluded_lower = {e.lower() for e in excluded if e}
     for dirpath, dirnames, filenames in os.walk(root):
+        if is_cancelled():
+            raise JobCancelled()
         dirnames[:] = [
             d for d in dirnames
             if d.lower() not in excluded_lower and not d.startswith(".")
@@ -44,7 +51,7 @@ def _fingerprint(root, extensions, excluded):
                 count += 1
             except OSError:
                 pass
-    return f"{count}:{total}"
+    return f"{count}:{total}", count
 
 
 def _cache_path(lib_id):
@@ -81,7 +88,7 @@ def scan_library(lib, extensions, excluded, emit=True, use_cache=True):
         raise FileNotFoundError(f"Library path does not exist: {root}")
 
     excluded_lower = {e.lower() for e in excluded if e}
-    fp = _fingerprint(root, extensions, excluded_lower)
+    fp, total_count = _fingerprint(root, extensions, excluded_lower)
     if use_cache:
         cached = load_cache(lib["id"])
         if cached:
@@ -94,18 +101,10 @@ def scan_library(lib, extensions, excluded, emit=True, use_cache=True):
                 pass
 
     tracks = []
-    total_count = 0
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            d for d in dirnames
-            if d.lower() not in excluded_lower and not d.startswith(".")
-        ]
-        for name in filenames:
-            if os.path.splitext(name)[1].lower() in extensions:
-                total_count += 1
-
     processed = 0
     for dirpath, dirnames, filenames in os.walk(root):
+        if is_cancelled():
+            raise JobCancelled()
         dirnames[:] = [
             d for d in dirnames
             if d.lower() not in excluded_lower and not d.startswith(".")
@@ -115,7 +114,7 @@ def scan_library(lib, extensions, excluded, emit=True, use_cache=True):
             if os.path.splitext(name)[1].lower() not in extensions:
                 continue
             processed += 1
-            if processed % 10 == 0 and is_cancelled():
+            if is_cancelled():
                 raise JobCancelled()
             try:
                 st = os.stat(full)
@@ -196,6 +195,8 @@ def _index_files(root, extensions, excluded_lower):
     """Walk a tree and return {path: (size, mtime)} for matching audio files."""
     index = {}
     for dirpath, dirnames, filenames in os.walk(root):
+        if is_cancelled():
+            raise JobCancelled()
         dirnames[:] = [
             d for d in dirnames
             if d.lower() not in excluded_lower and not d.startswith(".")
@@ -313,7 +314,9 @@ def quick_scan(lib, extensions, excluded, emit=True):
 
     # Drop entries that no longer exist on disk.
     new_tracks = [by_path[p] for p in sorted(by_path) if os.path.exists(p)]
-    fp = _fingerprint(root, extensions, excluded_lower)
+    fp, _ = _fingerprint(root, extensions, excluded_lower)
+    if is_cancelled():
+        raise JobCancelled()
     save_cache(lib["id"], fp, new_tracks, index=_index_files(root, extensions, excluded_lower))
     if emit:
         events.progress(total, total, f"Updating {lib['name']}")

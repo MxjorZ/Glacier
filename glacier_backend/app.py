@@ -39,9 +39,17 @@ def create_app(host=None, port=None):
             time.sleep(30)
             try:
                 plex = store.get().get("plex", {})
+                running = [j for j in supervisor.all_running()
+                           if j.get("operation") == "plex-rating-sync"]
+                # Disabled (or toggled off mid-run): stop any in-flight sync job.
                 if not plex.get("rating_sync_enabled"):
+                    for j in running:
+                        supervisor.cancel(j["id"])
                     continue
                 if not (plex.get("url") and plex.get("token")):
+                    continue
+                # Never stack a second sync while one is already running.
+                if running:
                     continue
                 last = plex.get("last_rating_sync") or 0
                 interval = int(plex.get("rating_sync_interval_sec", 600) or 600)

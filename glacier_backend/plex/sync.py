@@ -13,6 +13,7 @@ import os
 import time
 
 from .. import events
+from ..cancel import is_cancelled, JobCancelled
 from ..settings import store
 from ..library import scanner, metadata
 from ..library.exclusivity import normalize
@@ -89,6 +90,8 @@ def sync_ratings(url, token, section_name, overwrite):
     logged = 0
 
     for rec in ratings:
+        if is_cancelled():
+            raise JobCancelled()
         tag_rating = map_rating(rec.get("rating") or 0)
         if tag_rating <= 0:
             continue
