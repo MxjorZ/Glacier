@@ -79,6 +79,15 @@ export function useSSE(onEvent) {
       try { d = JSON.parse(e.data); } catch { return; }
       apply(d);
     };
+    es.onopen = () => {
+      // EventSource fired a reconnection: log recovery and re-seed any jobs that
+      // may have started while the stream was down, so they appear in the dock.
+      addLog({ type: 'connected', level: 'connected', message: 'Live stream reconnected', ts: Date.now() / 1000 });
+      api.currentJob().then((r) => {
+        const arr = r?.jobs || [];
+        if (arr.length) setJobs(Object.fromEntries(arr.map((j) => [j.id, { ...j, running: true }])));
+      }).catch(() => {});
+    };
     es.onerror = () => {
       // EventSource auto-reconnects; record a disconnected log line so it shows
       // in the console's "Disconnected" category.

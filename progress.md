@@ -385,5 +385,21 @@ npm run dev
   mount effect only calls the read-only `/api/libraries/status`; the only
   automatic scan is the one-time backend "Startup scan" launched ~20s after the
   server starts (`app.py`), independent of any browser refresh.
+- **"Live stream disconnected — reconnecting…" + new jobs not showing in the
+  Activity dock.** Root cause: `events._Hub.connect()` put the initial
+  "connected" event on the client queue as a *raw dict*, while the SSE generator
+  yields whatever it pulls and every other producer (`broadcast`) puts an
+  SSE-formatted *string*. The very first yield was therefore a dict →
+  Werkzeug dev server raised `AssertionError: applications must write bytes`,
+  closing every SSE connection immediately after the 200 headers. Result: the
+  browser EventSource could never stay open (infinite "reconnecting…") and the
+  `job_state`/`progress` events that feed the ActivityDock never arrived.
+  Fixed by enqueueing the SSE-formatted string (`_sse(ev)`) in `connect()`, the
+  same as `broadcast`. Verified with a raw-socket probe: the stream now stays
+  open and delivers `connected`, `job_state` (running + complete) and `done`.
+  Also hardened `useSSE.js` to log "Live stream reconnected" on `onopen` and to
+  re-seed running jobs via `api.currentJob()` on every reconnect, so a job that
+  starts while the stream briefly drops reappears in the dock.
+
 
 

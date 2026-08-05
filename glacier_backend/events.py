@@ -41,13 +41,18 @@ class _Hub:
         The new client is immediately sent a ``connected`` event onto its own
         queue so the SSE stream produces a first chunk right away (also makes
         the stream flush its headers immediately).
+
+        The queued item must be the SSE-formatted string produced by ``_sse``
+        (exactly like ``broadcast``) — the stream generator yields whatever it
+        pulls, and Werkzeug's dev server requires that to be a string/bytes,
+        not the raw dict.
         """
         ev = _event("connected", at=time.time())
         q = queue.Queue()
         with self._lock:
             self._clients.add(q)
             self._history.append(ev)
-        q.put_nowait(ev)
+        q.put_nowait(_sse(ev))
         return q
 
     def disconnect(self, q):
