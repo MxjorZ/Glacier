@@ -12,6 +12,7 @@ files.
 import os
 import shutil
 import time
+import re
 
 from flask import request, jsonify, Response, stream_with_context
 
@@ -23,12 +24,14 @@ from .jobs import supervisor
 from .settings import store
 from . import browser
 from .library import scanner, organizer, duplicates as dup_mod, exclusivity, extract
+from .library.exclusivity import normalize
 from .tags import editor as tag_editor
 from .tags import genres as genre_ops
 from .cleanup import cleaner
 from .reports import exporter
 from .plex import client as plex_client
 from .plex import sync as plex_sync
+from . import mover  # <-- NEW
 
 
 def _libs():
@@ -71,7 +74,6 @@ def op_analyze(library_ids=None):
     if library_ids:
         libs = [l for l in libs if l["id"] in library_ids]
     else:
-        # Batch analyze: only active (enabled) libraries are scanned.
         libs = _enabled_libs()
     if not libs:
         raise ValueError("No libraries configured")
@@ -298,7 +300,9 @@ def op_tracks_page(library_id, page, per_page, sort="title", order="asc", query=
             "items": items, "total": total, "page": page, "per_page": per_page}
 
 
-
+# ======================================================================
+# NEW: Organize using the simple mover engine
+# ======================================================================
 
 def op_organize(library_id, dry_run, confirm=False):
     lib = store.get_library(library_id)
@@ -308,18 +312,30 @@ def op_organize(library_id, dry_run, confirm=False):
         raise ValueError("Apply requires explicit confirmation (confirm=true)")
     settings = store.get()
     tracks = scanner.get_inventory(lib, settings["extensions"], settings["excluded_folders"])
-    plan = organizer.plan_library(
-        tracks, lib["path"],
-        settings["folder_pattern"], settings["naming_pattern"])
+    file_paths = [t['path'] for t in tracks if not t.get('error')]
+
+    plan = mover.plan_files(
+        file_paths,
+        settings["folder_pattern"],
+        settings["naming_pattern"],
+        lib["path"]
+    )
     if dry_run:
         events.log(f"Organize dry-run: {len(plan)} files would move", "info")
         return {"ok": True, "dry_run": True, "count": len(plan), "plan": plan}
-    moved, errors = organizer.apply_plan(
-        plan, lib["path"], settings.get("backup_before_move", False))
-    events.log(f"Organized {moved} files in '{lib['name']}'", "success")
-    return {"ok": True, "dry_run": False, "moved": moved,
-            "errors": errors, "count": len(plan)}
 
+    moved, errors = mover.execute_plan(
+        plan,
+        dry_run=False,
+        backup=settings.get("backup_before_move", False)
+    )
+    events.log(f"Organized {moved} files in '{lib['name']}'", "success")
+    return {"ok": True, "dry_run": False, "moved": moved, "errors": errors, "count": len(plan)}
+
+
+# ======================================================================
+# Duplicates – unchanged
+# ======================================================================
 
 def op_duplicates(library_id):
     lib = store.get_library(library_id)
@@ -332,6 +348,10 @@ def op_duplicates(library_id):
     return {"ok": True, "library_id": library_id, "library": lib["name"],
             "groups": groups, "count": len(groups)}
 
+
+# ======================================================================
+# Exclusivity scan – unchanged
+# ======================================================================
 
 def op_exclusivity(library_ids=None):
     settings = store.get()
@@ -355,7 +375,6 @@ def op_artist_exclusivity(library_ids=None):
     settings = store.get()
     libs = _enabled_libs()
     if not libs:
-        # Fall back to all libraries if none are enabled
         events.log("No enabled libraries found – using all libraries for artist scan", "warning")
         libs = _libs()
     if library_ids:
@@ -367,7 +386,6 @@ def op_artist_exclusivity(library_ids=None):
                 lib, settings["extensions"], settings["excluded_folders"])
     events.log(f"Artist scan: found {len(inventories)} libraries, total tracks across libraries: {sum(len(t) for t in inventories.values())}", "info")
     exceptions = settings.get("artist_exclusivity_exceptions", [])
-    # Filter out empty strings
     exceptions = [e for e in exceptions if e and e.strip()]
     groups = exclusivity.scan_artist_violations(inventories, exceptions)
     events.artist_exclusivity_report(len(groups))
@@ -375,8 +393,11 @@ def op_artist_exclusivity(library_ids=None):
     return {"ok": True, "groups": groups, "count": len(groups)}
 
 
+# ======================================================================
+# Artist resolution – uses mover
+# ======================================================================
+
 def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, library_ids=None):
-    """Build (and optionally execute) artist exclusivity plans."""
     if not dry_run and not confirm:
         raise ValueError("Apply requires explicit confirmation (confirm=true)")
     settings = store.get()
@@ -407,40 +428,50 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
     move_dir = None
     if policy == "keep_preferred_library" and preferred_library_id:
         tgt = store.get_library(preferred_library_id)
-        if tgt:
+        if tgt and os.path.isdir(tgt["path"]):
             move_dir = tgt["path"]
+            events.log(f"Artist resolution: moving files to '{move_dir}'", "info")
         else:
-            events.log(f"Preferred library {preferred_library_id} not found", "error")
+            events.log(f"Preferred library '{preferred_library_id}' not found or path missing", "error")
             return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": len(plans)}
     else:
-        events.log("Policy must be 'keep_preferred_library' for actual moves; no action taken", "warning")
+        events.log("Artist resolution requires 'keep_preferred_library' policy and a valid preferred library ID", "error")
         return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": len(plans)}
 
     acted = 0
     skipped = 0
-    total_files = sum(len(p["remove"]) for p in plans)
-    processed = 0
     for plan in plans:
         for tr in plan["remove"]:
-            processed += 1
-            if processed % 10 == 0:
-                events.progress(processed, total_files, f"Resolving artist {plan.get('display', '')}")
-            if move_dir:
-                ok, _d = exclusivity.execute_removal(
-                    tr, "move_to_library", move_dir=move_dir)
-                if ok:
-                    acted += 1
-                    events.log(f"Moved: {tr.get('path')} -> {move_dir}", "verbose")
-                else:
-                    skipped += 1
-                    events.log(f"Skipped: {tr.get('path')} ({_d})", "warning")
-            else:
+            src = tr.get("path")
+            if not src or not os.path.exists(src):
+                events.log(f"Source file missing: {src}", "warning")
                 skipped += 1
-    events.progress(total_files, total_files, "Artist resolution complete")
+                continue
+            # Build destination in preferred library root
+            dest = os.path.join(move_dir, os.path.basename(src))
+            # Avoid overwrite
+            base, ext = os.path.splitext(dest)
+            i = 1
+            while os.path.exists(dest):
+                dest = f"{base} ({i}){ext}"
+                i += 1
+            try:
+                os.makedirs(move_dir, exist_ok=True)
+                shutil.move(src, dest)
+                acted += 1
+                events.log(f"Moved: {src} -> {dest}", "success")
+            except Exception as e:
+                skipped += 1
+                events.log(f"Failed to move {src}: {e}", "error")
+
     events.log(f"Artist exclusivity applied: {acted} moved, {skipped} skipped", "success")
     return {"ok": True, "dry_run": False, "acted": acted,
             "skipped": skipped, "count": len(plans)}
 
+
+# ======================================================================
+# Library exclusivity resolution – uses mover
+# ======================================================================
 
 def op_resolve(policy, preferred_library_id, move_target_library_id,
                dry_run, confirm=False, library_ids=None):
@@ -470,7 +501,7 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
         events.log(f"Exclusivity dry-run: {len(plans)} groups, {total} files to act on", "info")
         return {"ok": True, "dry_run": True, "count": len(plans), "plans": plans}
 
-    # Determine effective policy and move_dir
+    # Determine effective policy and target
     effective_policy = policy
     effective_target_id = move_target_library_id
 
@@ -493,37 +524,56 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
     move_dir = None
     if effective_policy == "move_to_library" and effective_target_id:
         tgt = store.get_library(effective_target_id)
-        if tgt:
+        if tgt and os.path.isdir(tgt["path"]):
             move_dir = tgt["path"]
             events.log(f"Moving to target library: {move_dir}", "info")
         else:
-            events.log(f"Target library {effective_target_id} not found, using quarantine", "warning")
+            events.log(f"Target library {effective_target_id} not found or invalid, using quarantine", "warning")
             effective_policy = "quarantine"
             move_dir = quarantine_dir
 
     acted = 0
     skipped = 0
-    total_files = sum(len(p["remove"]) for p in plans)
-    processed = 0
-    for p in plans:
-        for tr in p["remove"]:
-            processed += 1
-            if processed % 10 == 0:
-                events.progress(processed, total_files, f"Resolving duplicates ({processed}/{total_files})")
-            ok, detail = exclusivity.execute_removal(
-                tr, effective_policy, quarantine_dir=quarantine_dir, move_dir=move_dir)
-            if ok:
-                acted += 1
-                events.log(f"Moved: {tr.get('path')} -> {move_dir or quarantine_dir}", "verbose")
-            else:
+    for plan in plans:
+        for tr in plan["remove"]:
+            src = tr.get("path")
+            if not src or not os.path.exists(src):
+                events.log(f"Source file missing: {src}", "warning")
                 skipped += 1
-                events.log(f"Skipped: {tr.get('path')} ({detail})", "warning")
-    events.progress(total_files, total_files, "Exclusivity resolution complete")
-    events.log(
-        f"Exclusivity applied: {acted} files processed, {skipped} skipped", "success")
+                continue
+
+            # Determine destination
+            if effective_policy == "quarantine":
+                dest = os.path.join(quarantine_dir, os.path.basename(src))
+                os.makedirs(quarantine_dir, exist_ok=True)
+            else:
+                # move_to_library
+                dest = os.path.join(move_dir, os.path.basename(src))
+                os.makedirs(move_dir, exist_ok=True)
+
+            # Avoid overwrite
+            base, ext = os.path.splitext(dest)
+            i = 1
+            while os.path.exists(dest):
+                dest = f"{base} ({i}){ext}"
+                i += 1
+
+            try:
+                shutil.move(src, dest)
+                acted += 1
+                events.log(f"Moved: {src} -> {dest}", "success")
+            except Exception as e:
+                skipped += 1
+                events.log(f"Failed to move {src}: {e}", "error")
+
+    events.log(f"Exclusivity applied: {acted} files processed, {skipped} skipped", "success")
     return {"ok": True, "dry_run": False, "acted": acted,
             "skipped": skipped, "count": len(plans)}
 
+
+# ======================================================================
+# Cleanup, covers, playlists, report – unchanged
+# ======================================================================
 
 def op_cleanup(library_id, kind):
     lib = store.get_library(library_id)
@@ -700,14 +750,12 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
             "moved": moved, "errors": errors, "count": len(plan)}
 
 
-# -------- NEW: Import folder from source into a library --------
+# ======================================================================
+# Import folder – uses mover (new)
+# ======================================================================
+
 def op_import_folder(source_path, dest_library_id, preserve_structure=True, move=True):
-    """Move or copy all audio files from a source folder into a destination library.
-    
-    If preserve_structure is True, the relative folder structure under source_path
-    is replicated under the destination library root. If False, all files are placed
-    directly in the root of the destination library.
-    """
+    """Move or copy all audio files from a source folder into a destination library."""
     if not os.path.isdir(source_path):
         raise ValueError("Source path does not exist")
     lib = store.get_library(dest_library_id)
@@ -716,22 +764,20 @@ def op_import_folder(source_path, dest_library_id, preserve_structure=True, move
     dest_root = lib["path"]
     if not os.path.isdir(dest_root):
         raise ValueError("Destination library path does not exist")
-    
+
     settings = store.get()
     extensions = set(settings["extensions"])
     excluded = set(settings["excluded_folders"])
-    
+
     moved = 0
     errors = []
     total_files = 0
-    
-    # First count total audio files for progress reporting
+
     for _, _, files in os.walk(source_path):
         total_files += sum(1 for f in files if os.path.splitext(f)[1].lower() in extensions)
-    
+
     processed = 0
     for dirpath, dirnames, filenames in os.walk(source_path):
-        # skip excluded folders
         dirnames[:] = [d for d in dirnames if d.lower() not in excluded and not d.startswith(".")]
         for f in filenames:
             if os.path.splitext(f)[1].lower() not in extensions:
@@ -759,7 +805,6 @@ def op_import_folder(source_path, dest_library_id, preserve_structure=True, move
     events.progress(processed, total_files or 1, f"Import into {lib['name']} complete")
     events.log(f"Import completed: {moved} files {'moved' if move else 'copied'}, {len(errors)} errors", "success")
     return {"moved": moved, "errors": errors, "total": processed}
-# -------- END NEW --------
 
 
 # --- Job dispatch helper -------------------------------------------------
@@ -1078,7 +1123,6 @@ def register_routes(app):
                       bool(body.get("dry_run", True)),
                       bool(body.get("confirm", False)))
 
-    # -------- NEW: Import folder route --------
     @app.post("/api/run/import-folder")
     def run_import_folder():
         body = _json_body()
@@ -1091,7 +1135,6 @@ def register_routes(app):
         if not os.path.isdir(source):
             return jsonify({"ok": False, "error": "Source path does not exist"}), 400
         return _start("import-folder", op_import_folder, source, dest_lib, preserve, move)
-    # -------- END NEW --------
 
     @app.post("/api/run/cleanup")
     def run_cleanup():
