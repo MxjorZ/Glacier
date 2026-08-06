@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Save, Server, SlidersHorizontal, FolderTree, ShieldAlert, Radio, Palette, Volume2, Loader2, CheckCircle2, XCircle, Sparkles } from 'lucide-react';
+import { Save, Server, SlidersHorizontal, FolderTree, ShieldAlert, Radio, Palette, Volume2, Loader2, CheckCircle2, XCircle, Sparkles, Settings2, FileText, FolderOpen, Tag } from 'lucide-react';
 import { api } from '../api.js';
 import { applySettingsTheme, applyAnimations, ANIM_PRESETS, ACCENTS, customAccentVars, parseAccentColor } from '../lib/themes.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardAction } from '@/components/ui/card.jsx';
@@ -30,14 +30,27 @@ const POLICIES = [
   { value: 'quarantine', label: 'Quarantine' },
 ];
 
+const CODE_SNIPPETS = [
+  '{title}', '{artist}', '{artists}', '{album}', '{album_artist}',
+  '{track}', '{total_tracks}', '{disc}', '{total_discs}',
+  '{year}', '{date}', '{isrc}', '{upc}', '{category}', '{playlist}',
+];
+
+const NAV_ITEMS = [
+  { id: 'general', label: 'General', Icon: Settings2 },
+  { id: 'naming', label: 'Naming', Icon: FileText },
+  { id: 'filemanagement', label: 'File Management', Icon: FolderOpen },
+  { id: 'metadata', label: 'Metadata', Icon: Tag },
+];
+
 export default function Settings({ settings, onSettings }) {
   const [s, setS] = useState(settings || {});
-  const [plexTest, setPlexTest] = useState(null);   // null | {ok,..} | {error}
+  const [plexTest, setPlexTest] = useState(null);
   const [plextesting, setPlexTesting] = useState(false);
+  const [activeTab, setActiveTab] = useState('general');
 
   useEffect(() => { if (settings) setS(settings); }, [settings]);
 
-  // Live animation preview as the user tweaks the Animations card (Stage 4 #16).
   useEffect(() => { applyAnimations(s); }, [s.animations]);
 
   const testPlex = async () => {
@@ -58,6 +71,7 @@ export default function Settings({ settings, onSettings }) {
     setS((prev) => ({ ...prev, [root]: { ...(prev[root] || {}), [key]: value } }));
 
   const libs = s.libraries || [];
+
   const save = async () => {
     try {
       const res = await api.saveSettings({
@@ -66,6 +80,7 @@ export default function Settings({ settings, onSettings }) {
         excluded_folders: s.excluded_folders,
         folder_pattern: s.folder_pattern,
         naming_pattern: s.naming_pattern,
+        startup_scan_enabled: s.startup_scan_enabled,
         dup_priority: s.dup_priority,
         exclusivity: s.exclusivity,
         exclusivity_artist_policy: s.exclusivity_artist_policy,
@@ -89,332 +104,417 @@ export default function Settings({ settings, onSettings }) {
   const extText = (s.extensions || []).join(', ');
   const exclText = (s.excluded_folders || []).join(', ');
 
+  // Live preview for naming
+  const sampleTags = {
+    artist: 'HUNTR/X',
+    album: 'KPop Demon Hunters (Soundtrack from the Netflix Film)',
+    album_artist: 'KPop Demon Hunters Cast',
+    title: 'Golden',
+    track: '04',
+    total_tracks: '12',
+    disc: '1',
+    total_discs: '2',
+    year: '2025',
+    date: '2025-03-15',
+    isrc: 'US-ABC-25-12345',
+    upc: '123456789012',
+    category: 'Soundtrack',
+    playlist: 'KPop Hits 2025',
+  };
+
+  const renderPreview = (pattern, tags) => {
+    if (!pattern) return 'Enter a pattern to preview';
+    let result = pattern;
+    for (const [key, value] of Object.entries(tags)) {
+      result = result.replace(new RegExp(`{${key}}`, 'g'), value || `{${key}}`);
+    }
+    return result;
+  };
+
   return (
-    <div>
-      <PageHeader title="Settings" description="Configure server, scanning, organization and integrations.">
-        <Button onClick={save}><Save className="size-4" /> Save changes</Button>
-      </PageHeader>
+    <div className="flex flex-col h-full">
+      <PageHeader title="Settings" description="Configure Glacier to your liking." />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Server */}
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2"><Server className="size-4 text-primary" /> Server</CardTitle>
-            <CardDescription>Bind address and port</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Host</label>
-              <Input value={s.server?.host || ''} onChange={(e) => setNested('server', 'host', e.target.value)} placeholder="0.0.0.0" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Port</label>
-              <Input type="number" value={s.server?.port || 5050} onChange={(e) => setNested('server', 'port', Number(e.target.value))} />
-            </div>
-          </CardContent>
-        </Card>
+      <div className="flex flex-1 gap-6">
+        {/* Sidebar Navigation */}
+        <div className="w-48 shrink-0 space-y-1">
+          {NAV_ITEMS.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={cn(
+                'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                activeTab === id
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+              )}
+            >
+              <Icon className="size-4" />
+              {label}
+            </button>
+          ))}
+        </div>
 
-        {/* Formats */}
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2"><SlidersHorizontal className="size-4 text-primary" /> Formats</CardTitle>
-            <CardDescription>Scanned extensions and duplicate preference</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Audio extensions (comma separated)</label>
-              <Input value={extText}
-                onChange={(e) => set('extensions', e.target.value.split(',').map((x) => x.trim()).filter(Boolean))} />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Preferred format for duplicates</label>
-              <Select value={s.dup_priority || 'flac'} onValueChange={(v) => set('dup_priority', v)}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {['flac', 'wav', 'alac', 'm4a', 'ogg', 'opus', 'wma', 'mp3', 'aac'].map((f) => (
-                    <SelectItem key={f} value={f}>{f}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Content Panel */}
+        <div className="flex-1 min-w-0">
+          {/* ===== GENERAL TAB ===== */}
+          {activeTab === 'general' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>General</CardTitle>
+                  <CardDescription>Application-wide settings</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label>Language</label>
+                    <Select value="en" onValueChange={() => {}}>
+                      <SelectTrigger className="w-full"><SelectValue placeholder="English" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="en">English</SelectItem>
+                        <SelectItem value="he">Hebrew</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-        {/* Scanning */}
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2"><FolderTree className="size-4 text-primary" /> Scanning</CardTitle>
-            <CardDescription>Excluded folders and move safety. (Folder/naming templates live in Tools → Organize.)</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Excluded folders (comma separated)</label>
-              <Input value={exclText}
-                onChange={(e) => set('excluded_folders', e.target.value.split(',').map((x) => x.trim()).filter(Boolean))} />
-            </div>
-            <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
-              <div>
-                <span className="text-sm">Run quick scan on app startup</span>
-                <p className="text-xs text-muted-foreground">Automatically scans for changes when the app loads</p>
-              </div>
-              <Switch
-                checked={!!s.startup_scan_enabled}
-                onCheckedChange={(v) => set('startup_scan_enabled', v)}
-              />
-            </div>
-          </CardContent>
-        </Card>
+                  <div className="space-y-1.5">
+                    <label>Mode</label>
+                    <Select value={s.theme?.mode || 'dark'} onValueChange={(v) => setNested('theme', 'mode', v)}>
+                      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="dark">Dark</SelectItem>
+                        <SelectItem value="light">Light</SelectItem>
+                        <SelectItem value="amoled">AMOLED</SelectItem>
+                        <SelectItem value="auto">Auto</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-        {/* Exclusivity */}
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2"><ShieldAlert className="size-4 text-primary" /> Exclusivity</CardTitle>
-            <CardDescription>Cross-library identity and default policy</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Identity match</label>
-              <Select value={s.exclusivity?.identity || 'auto'} onValueChange={(v) => setNested('exclusivity', 'identity', v)}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {IDENTITIES.map((i) => <SelectItem key={i.value} value={i.value}>{i.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Default resolution policy</label>
-              <Select value={s.exclusivity?.default_policy || 'report_only'} onValueChange={(v) => setNested('exclusivity', 'default_policy', v)}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {POLICIES.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Primary Music Library</label>
-              <Select value={s.exclusivity?.preferred_library_id || ''} onValueChange={(v) => setNested('exclusivity', 'preferred_library_id', v)}>
-                <SelectTrigger className="w-full"><SelectValue placeholder="None" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">None</SelectItem>
-                  {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">Your main collection. When resolving duplicates that appear in more than one library, Glacier prefers to keep the copy here.</p>
-            </div>
-          </CardContent>
-        </Card>
+                  <div className="space-y-1.5">
+                    <label>Accent</label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {ACCENTS.map((a) => (
+                        <button
+                          key={a}
+                          onClick={() => setNested('theme', 'accent', a)}
+                          className={`h-8 w-8 rounded-full border-2 transition ${s.theme?.accent === a ? 'border-foreground scale-110' : 'border-transparent'}`}
+                          style={{ background: ACCENT_SWATCH[a] }}
+                          title={a}
+                        />
+                      ))}
+                      <button
+                        onClick={() => setNested('theme', 'accent', 'custom')}
+                        className={`h-8 w-8 rounded-full border-2 transition ${s.theme?.accent === 'custom' ? 'border-foreground scale-110' : 'border-transparent'}`}
+                        style={{ background: 'linear-gradient(135deg,#f97316,#a855f7,#3b82f6)' }}
+                        title="Custom color"
+                      />
+                    </div>
+                  </div>
 
-        {/* Plex */}
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2"><Radio className="size-4 text-primary" /> Plex</CardTitle>
-            <CardDescription>Media server connection</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Server URL</label>
-              <Input value={s.plex?.url || ''} onChange={(e) => setNested('plex', 'url', e.target.value)} placeholder="http://192.168.1.10:32400" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">API token</label>
-              <Input value={s.plex?.token || ''} onChange={(e) => setNested('plex', 'token', e.target.value)} placeholder="Plex authentication token" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Music section name</label>
-              <Input value={s.plex?.music_section || ''} onChange={(e) => setNested('plex', 'music_section', e.target.value)} placeholder="Music" />
-            </div>
+                  <div className="space-y-1.5">
+                    <label>Custom accent — hex (#RRGGBB) or rgb(r,g,b)</label>
+                    <Input
+                      value={s.theme?.accent_custom || ''}
+                      onChange={(e) => setNested('theme', 'accent_custom', e.target.value)}
+                      placeholder="#00A3FF or 0,163,255"
+                      className="font-mono text-xs"
+                      onBlur={() => {
+                        const v = s.theme?.accent_custom;
+                        if (v && s.theme?.accent === 'custom') {
+                          const vars = customAccentVars(v);
+                          if (vars) { applySettingsTheme({ theme: { mode: s.theme?.mode, accent: 'custom', accent_custom: v } }); toast.success('Custom accent applied'); }
+                          else toast.error('Invalid color — use #RRGGBB, #RGB, or r,g,b');
+                        }
+                      }}
+                    />
+                  </div>
 
-            {/* Test connection before applying */}
-            <div className="rounded-lg border p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium">Test connection</span>
-                <Button size="sm" variant="outline" onClick={testPlex} disabled={plextesting}>
-                  {plextesting ? <Loader2 className="size-4 animate-spin" /> : <Radio className="size-4" />}
-                  {plextesting ? 'Testing…' : 'Test'}
-                </Button>
-              </div>
-              {plexTest && (
-                <div className={cn('mt-2 flex items-start gap-2 rounded-lg p-2 text-xs',
-                  plexTest.ok ? 'bg-ok/10 text-ok' : 'bg-destructive/10 text-destructive')}>
-                  {plexTest.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
-                    : <XCircle className="mt-0.5 size-4 shrink-0" />}
-                  <div className="min-w-0">
-                    {plexTest.ok ? (
-                      <>
-                        <p className="font-medium">Connected to {plexTest.friendly_name || 'Plex'} (v{plexTest.version || '?'})</p>
-                        <p className="opacity-80">Server URL + token are valid. {(plexTest.libraries || []).length} section(s) found.</p>
-                      </>
-                    ) : (
-                      <p className="break-words">{plexTest.error || 'Connection failed — check URL and token.'}</p>
+                  <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
+                    <div>
+                      <span className="text-sm">Sound Effects</span>
+                      <p className="text-xs text-muted-foreground">Play sounds on job completion</p>
+                    </div>
+                    <Switch checked={!!s.sound_on_complete} onCheckedChange={(v) => set('sound_on_complete', v)} />
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
+                    <div>
+                      <span className="text-sm">Update Notifications</span>
+                      <p className="text-xs text-muted-foreground">Check for updates on startup</p>
+                    </div>
+                    <Switch checked={false} onCheckedChange={() => {}} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Download Path</CardTitle>
+                  <CardDescription>Where downloaded files are stored</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Input value="/mnt/music" onChange={() => {}} className="font-mono text-xs" />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Rate Limited Downloads</CardTitle>
+                  <CardDescription>Throttle download speed</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Select value="normal">
+                    <SelectTrigger className="w-full"><SelectValue placeholder="Normal" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="normal">Normal</SelectItem>
+                      <SelectItem value="slow">Slow</SelectItem>
+                      <SelectItem value="fast">Fast</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* ===== NAMING TAB ===== */}
+          {activeTab === 'naming' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Filename Pattern</CardTitle>
+                  <CardDescription>How files should be named when organized</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Input
+                    value={s.naming_pattern || ''}
+                    onChange={(e) => set('naming_pattern', e.target.value)}
+                    className="font-mono text-sm"
+                    placeholder="{artist} - {album} - {track} - {title}"
+                  />
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Preview</p>
+                    <div className="rounded-lg border bg-muted/30 p-3 font-mono text-sm text-foreground">
+                      {renderPreview(s.naming_pattern || '{artist} - {album} - {track} - {title}', sampleTags)}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Folder Structure</CardTitle>
+                  <CardDescription>How folders should be organized</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Input
+                    value={s.folder_pattern || ''}
+                    onChange={(e) => set('folder_pattern', e.target.value)}
+                    className="font-mono text-sm"
+                    placeholder="{album_artist}/{album} ({year})"
+                  />
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Preview</p>
+                    <div className="rounded-lg border bg-muted/30 p-3 font-mono text-sm text-foreground">
+                      {renderPreview(s.folder_pattern || '{album_artist}/{album} ({year})', sampleTags)}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Code Snippets</CardTitle>
+                  <CardDescription>Available variables for patterns</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {CODE_SNIPPETS.map((snippet) => (
+                      <span key={snippet} className="rounded-md bg-muted/30 px-2.5 py-1 font-mono text-xs text-muted-foreground">
+                        {snippet}
+                      </span>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* ===== FILE MANAGEMENT TAB ===== */}
+          {activeTab === 'filemanagement' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>File Management</CardTitle>
+                  <CardDescription>How files are handled</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
+                    <div>
+                      <span className="text-sm">Backup before moving</span>
+                      <p className="text-xs text-muted-foreground">Create .bak copy before organizing</p>
+                    </div>
+                    <Switch checked={!!s.backup_before_move} onCheckedChange={(v) => set('backup_before_move', v)} />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label>Excluded folders (comma separated)</label>
+                    <Input
+                      value={exclText}
+                      onChange={(e) => set('excluded_folders', e.target.value.split(',').map((x) => x.trim()).filter(Boolean))}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label>Audio extensions (comma separated)</label>
+                    <Input
+                      value={extText}
+                      onChange={(e) => set('extensions', e.target.value.split(',').map((x) => x.trim()).filter(Boolean))}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label>Preferred format for duplicates</label>
+                    <Select value={s.dup_priority || 'flac'} onValueChange={(v) => set('dup_priority', v)}>
+                      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {['flac', 'wav', 'alac', 'm4a', 'ogg', 'opus', 'wma', 'mp3', 'aac'].map((f) => (
+                          <SelectItem key={f} value={f}>{f}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
+                    <div>
+                      <span className="text-sm">Run quick scan on app startup</span>
+                      <p className="text-xs text-muted-foreground">Automatically scans for changes when the app loads</p>
+                    </div>
+                    <Switch
+                      checked={!!s.startup_scan_enabled}
+                      onCheckedChange={(v) => set('startup_scan_enabled', v)}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* ===== METADATA TAB ===== */}
+          {activeTab === 'metadata' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Exclusivity</CardTitle>
+                  <CardDescription>Cross-library identity and default policy</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label>Identity match</label>
+                    <Select value={s.exclusivity?.identity || 'auto'} onValueChange={(v) => setNested('exclusivity', 'identity', v)}>
+                      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {IDENTITIES.map((i) => <SelectItem key={i.value} value={i.value}>{i.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label>Default resolution policy</label>
+                    <Select value={s.exclusivity?.default_policy || 'report_only'} onValueChange={(v) => setNested('exclusivity', 'default_policy', v)}>
+                      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {POLICIES.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label>Primary Music Library</label>
+                    <Select value={s.exclusivity?.preferred_library_id || ''} onValueChange={(v) => setNested('exclusivity', 'preferred_library_id', v)}>
+                      <SelectTrigger className="w-full"><SelectValue placeholder="None" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">None</SelectItem>
+                        {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-muted-foreground">Your main collection. When resolving duplicates that appear in more than one library, Glacier prefers to keep the copy here.</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Plex Integration</CardTitle>
+                  <CardDescription>Media server connection</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label>Server URL</label>
+                    <Input value={s.plex?.url || ''} onChange={(e) => setNested('plex', 'url', e.target.value)} placeholder="http://192.168.1.10:32400" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label>API token</label>
+                    <Input value={s.plex?.token || ''} onChange={(e) => setNested('plex', 'token', e.target.value)} placeholder="Plex authentication token" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label>Music section name</label>
+                    <Input value={s.plex?.music_section || ''} onChange={(e) => setNested('plex', 'music_section', e.target.value)} placeholder="Music" />
+                  </div>
+
+                  <div className="rounded-lg border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium">Test connection</span>
+                      <Button size="sm" variant="outline" onClick={testPlex} disabled={plextesting}>
+                        {plextesting ? <Loader2 className="size-4 animate-spin" /> : <Radio className="size-4" />}
+                        {plextesting ? 'Testing…' : 'Test'}
+                      </Button>
+                    </div>
+                    {plexTest && (
+                      <div className={cn('mt-2 flex items-start gap-2 rounded-lg p-2 text-xs',
+                        plexTest.ok ? 'bg-ok/10 text-ok' : 'bg-destructive/10 text-destructive')}>
+                        {plexTest.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+                          : <XCircle className="mt-0.5 size-4 shrink-0" />}
+                        <div className="min-w-0">
+                          {plexTest.ok ? (
+                            <>
+                              <p className="font-medium">Connected to {plexTest.friendly_name || 'Plex'} (v{plexTest.version || '?'})</p>
+                              <p className="opacity-80">Server URL + token are valid. {(plexTest.libraries || []).length} section(s) found.</p>
+                            </>
+                          ) : (
+                            <p className="break-words">{plexTest.error || 'Connection failed — check URL and token.'}</p>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
-                </div>
-              )}
-            </div>
-            <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
-              <div>
-                <span className="text-sm">Sync Plex ratings to file tags</span>
-                <p className="text-xs text-muted-foreground">When on, Glacier checks Plex periodically and writes your star ratings into the matching files' tags (5 stars → rating 100). No other setup needed.</p>
-              </div>
-              <Switch checked={!!s.plex?.rating_sync_enabled} onCheckedChange={(v) => setNested('plex', 'rating_sync_enabled', v)} />
-            </div>
-            {s.plex?.last_rating_sync && (
-              <p className="text-[11px] text-muted-foreground">
-                Last sync: {new Date(s.plex.last_rating_sync * 1000).toLocaleString()}
-                {s.plex.last_rating_sync_result ? ` — ${s.plex.last_rating_sync_result.written ?? 0} written, ${s.plex.last_rating_sync_result.matched ?? 0} matched` : ''}
-              </p>
-            )}
-          </CardContent>
-        </Card>
 
+                  <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
+                    <div>
+                      <span className="text-sm">Sync Plex ratings to file tags</span>
+                      <p className="text-xs text-muted-foreground">Periodically writes Plex star ratings into file tags</p>
+                    </div>
+                    <Switch
+                      checked={!!s.plex?.rating_sync_enabled}
+                      onCheckedChange={(v) => setNested('plex', 'rating_sync_enabled', v)}
+                    />
+                  </div>
 
-        {/* Theme */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2"><Palette className="size-4 text-primary" /> Theme</CardTitle>
-            <CardDescription>Color mode (incl. AMOLED), accent preset, or a custom color</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-6 sm:flex-row sm:items-start">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Color mode</label>
-              <Select value={s.theme?.mode || 'dark'} onValueChange={(v) => setNested('theme', 'mode', v)}>
-                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="dark">Dark</SelectItem>
-                  <SelectItem value="light">Light</SelectItem>
-                  <SelectItem value="amoled">AMOLED (true black)</SelectItem>
-                  <SelectItem value="auto">Auto (system)</SelectItem>
-                </SelectContent>
-              </Select>
+                  {s.plex?.last_rating_sync && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Last sync: {new Date(s.plex.last_rating_sync * 1000).toLocaleString()}
+                      {s.plex.last_rating_sync_result ? ` — ${s.plex.last_rating_sync_result.written ?? 0} written, ${s.plex.last_rating_sync_result.matched ?? 0} matched` : ''}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
             </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Accent</label>
-              <div className="flex flex-wrap items-center gap-2">
-                {ACCENTS.map((a) => (
-                  <button
-                    key={a}
-                    data-accent={a}
-                    onClick={() => setNested('theme', 'accent', a)}
-                    className={`h-7 w-7 rounded-full border-2 transition ${s.theme?.accent === a ? 'border-foreground scale-110' : 'border-transparent'}`}
-                    style={{ background: ACCENT_SWATCH[a] }}
-                    title={a}
-                  />
-                ))}
-                <button
-                  onClick={() => setNested('theme', 'accent', 'custom')}
-                  className={`h-7 w-7 rounded-full border-2 transition ${s.theme?.accent === 'custom' ? 'border-foreground scale-110' : 'border-transparent'}`}
-                  style={{ background: 'linear-gradient(135deg,#f97316,#a855f7,#3b82f6)' }}
-                  title="Custom color"
-                />
-              </div>
-            </div>
-            <div className="min-w-[220px] space-y-1.5">
-              <label className="text-xs text-muted-foreground">Custom accent — hex (#RRGGBB / #RGB) or rgb(r,g,b)</label>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={s.theme?.accent_custom || ''}
-                  onChange={(e) => setNested('theme', 'accent_custom', e.target.value)}
-                  placeholder="#00A3FF or 0,163,255"
-                  className="font-mono text-xs"
-                  onBlur={() => {
-                    const v = s.theme?.accent_custom;
-                    if (v && s.theme?.accent === 'custom') {
-                      const vars = customAccentVars(v);
-                      if (vars) { applySettingsTheme({ theme: { mode: s.theme?.mode, accent: 'custom', accent_custom: v } }); toast.success('Custom accent applied'); }
-                      else toast.error('Invalid color — use #RRGGBB, #RGB, or r,g,b');
-                    }
-                  }}
-                />
-                <span
-                  className="h-7 w-7 shrink-0 rounded-full border"
-                  style={{ background: customAccentVars(s.theme?.accent_custom) ? customAccentVars(s.theme?.accent_custom)['--primary'] : 'transparent' }}
-                  title="Custom accent swatch"
-                />
-              </div>
-              {parseAccentColor(s.theme?.accent_custom) && (
-                <p className="text-[11px] text-muted-foreground">Live preview updates as you type.</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Animations */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2"><Sparkles className="size-4 text-primary" /> Animations</CardTitle>
-            <CardDescription>Pick a movement preset and fine-tune how Glacier feels</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Preset</label>
-              <Select value={s.animations?.preset || 'modern'}
-                onValueChange={(v) => setNested('animations', 'preset', v)}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {ANIM_PRESETS.map((p) => <SelectItem key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Duration (ms): {s.animations?.duration_ms ?? 220}</label>
-                <Input type="number" min={50} max={1000} value={s.animations?.duration_ms ?? 220}
-                  onChange={(e) => setNested('animations', 'duration_ms', Number(e.target.value) || 220)} />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Easing style</label>
-                <Select value={s.animations?.easing || 'ease-out'} onValueChange={(v) => setNested('animations', 'easing', v)}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['ease', 'ease-in', 'ease-out', 'ease-in-out'].map((e) => <SelectItem key={e} value={e}>{e}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {[['page_transitions', 'Page transitions'], ['hover', 'Hover animations'], ['click', 'Click animations']].map(([key, label]) => (
-                <div key={key} className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
-                  <Switch checked={s.animations?.[key] !== false} onCheckedChange={(v) => setNested('animations', key, v)} />
-                  <span className="text-sm">{label}</span>
-                </div>
-              ))}
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Live preview applies as you change these options — press “Save changes” to keep them.
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Sound */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2"><Volume2 className="size-4 text-primary" /> Sound</CardTitle>
-            <CardDescription>Play a short sound when a job finishes</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
-              <div>
-                <span className="text-sm">Play sound on successful completion</span>
-                <p className="text-xs text-muted-foreground">Fires on SSE <code className="font-mono">done</code> for Analyze / Organize / etc.</p>
-              </div>
-              <Switch checked={!!s.sound_on_complete} onCheckedChange={(v) => set('sound_on_complete', v)} />
-            </div>
-            <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
-              <div>
-                <span className="text-sm">Play sound on error</span>
-                <p className="text-xs text-muted-foreground">Distinct cue when a job fails</p>
-              </div>
-              <Switch checked={!!s.sound_on_error} onCheckedChange={(v) => set('sound_on_error', v)} />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Completion sound asset</label>
-              <Input value={s.sound_asset_complete || ''} onChange={(e) => set('sound_asset_complete', e.target.value)} className="font-mono text-xs" placeholder="sounds/job-done.wav" />
-            </div>
-          </CardContent>
-        </Card>
+          )}
+        </div>
       </div>
 
-      {/* Sticky save button - always visible */}
+      {/* Sticky save button */}
       <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/80 px-4 py-3 backdrop-blur md:-mx-8 md:px-8">
         <div className="flex justify-end">
           <Button onClick={save}><Save className="size-4" /> Save changes</Button>
@@ -423,4 +523,3 @@ export default function Settings({ settings, onSettings }) {
     </div>
   );
 }
-
