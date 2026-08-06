@@ -414,8 +414,11 @@ export default function Settings({ settings, onSettings }) {
         </Card>
       </div>
 
-      <div className="mt-4 flex justify-end">
-        <Button onClick={save}><Save className="size-4" /> Save changes</Button>
+      {/* Sticky save button - always visible */}
+      <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/80 px-4 py-3 backdrop-blur md:-mx-8 md:px-8">
+        <div className="flex justify-end">
+          <Button onClick={save}><Save className="size-4" /> Save changes</Button>
+        </div>
       </div>
     </div>
   );

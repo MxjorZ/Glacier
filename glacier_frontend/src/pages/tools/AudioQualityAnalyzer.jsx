@@ -162,7 +162,12 @@ export default function AudioQualityAnalyzer() {
 
       {!audioInfo && !loading && <Empty text="Select a track or browse a file to analyze audio quality." />}
 
-      <FileExplorer open={picker} onClose={() => setPicker(false)} onSelect={onFileExplorerSelect} />
+      <FileExplorer
+        open={picker}
+        onClose={() => setPicker(false)}
+        onSelect={onFileExplorerSelect}
+        audioOnly={true}  // <-- only show audio files
+      />
     </div>
   );
 }

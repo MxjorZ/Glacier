@@ -909,6 +909,78 @@ def register_routes(app):
         limit = request.args.get("limit", default=100, type=int)
         return jsonify({"ok": True, "operations": operations_store.store.list(limit)})
 
+    # --- Audio Quality Analyzer --------------------------------------------
+    @app.post("/api/audio-info")
+    def audio_info():
+        """Get detailed audio information for a file."""
+        body = _json_body()
+        path = body.get("path")
+        if not path:
+            return jsonify({"ok": False, "error": "Path is required"}), 400
+        if not os.path.exists(path):
+            return jsonify({"ok": False, "error": "File not found"}), 404
+
+        try:
+            from mutagen import File
+            audio = File(path)
+            if audio is None:
+                return jsonify({"ok": False, "error": "Unsupported or corrupt file"}), 400
+
+            info = {
+                "path": path,
+                "format": None,
+                "bitrate": None,
+                "sample_rate": None,
+                "channels": None,
+                "duration": None,
+                "codec": None,
+                "bits_per_sample": None,
+                "file_size": os.path.getsize(path),
+                "compression_ratio": None,
+            }
+
+            if hasattr(audio, 'info'):
+                info["duration"] = float(audio.info.length) if hasattr(audio.info, 'length') else 0
+                info["bitrate"] = int(audio.info.bitrate) if hasattr(audio.info, 'bitrate') else 0
+                info["sample_rate"] = int(audio.info.sample_rate) if hasattr(audio.info, 'sample_rate') else 0
+                info["channels"] = int(audio.info.channels) if hasattr(audio.info, 'channels') else 0
+
+            # Detect format from file extension or mutagen type
+            ext = os.path.splitext(path)[1].lower()
+            if ext == '.flac':
+                info["format"] = "FLAC"
+                info["codec"] = "FLAC"
+                if hasattr(audio.info, 'bits_per_sample'):
+                    info["bits_per_sample"] = int(audio.info.bits_per_sample)
+            elif ext == '.mp3':
+                info["format"] = "MP3"
+                info["codec"] = "MPEG-1 Audio Layer 3"
+            elif ext == '.ogg':
+                info["format"] = "OGG"
+                info["codec"] = "Vorbis"
+            elif ext == '.m4a':
+                info["format"] = "M4A"
+                info["codec"] = "AAC / ALAC"
+            elif ext == '.wav':
+                info["format"] = "WAV"
+                info["codec"] = "PCM"
+            else:
+                info["format"] = "Unknown"
+
+            # Try to get tags
+            tags = {}
+            if hasattr(audio, 'get'):
+                for k in ('artist', 'album', 'title', 'genre', 'tracknumber', 'date'):
+                    val = audio.get(k, [''])[0] if audio.get(k) else ''
+                    if val:
+                        tags[k] = str(val)
+            info["tags"] = tags
+
+            return jsonify({"ok": True, "info": info})
+
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
     # --- Settings -----------------------------------------------------
     @app.get("/api/settings")
     def get_settings():
