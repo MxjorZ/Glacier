@@ -52,28 +52,28 @@ export default function Organize() {
     return () => clearTimeout(t);
   }, [folderPattern, namingPattern, libId]);
 
-const organize = async (dryRun) => {
+  const organize = async (dryRun) => {
     const payload = { library_id: libId, dry_run: dryRun, confirm: !dryRun };
     if (!dryRun && orgPlan.length > 0) {
-        // Send the previously computed plan to avoid re‑scanning
-        payload.plan = orgPlan;
+      // Send the previously computed plan to avoid re‑scanning
+      payload.plan = orgPlan;
     }
     const res = await run('organize', payload);
     if (dryRun) {
-        if (res?.ok) {
-            setOrgPlan(res.plan || []);
-            toast.success(`${res.count} files would be moved`);
-        } else {
-            toast.error(res.error || 'Dry‑run failed');
-        }
+      if (res?.ok) {
+        setOrgPlan(res.plan || []);
+        toast.success(`${res.count} files would be moved`);
+      } else {
+        toast.error(res.error || 'Dry‑run failed');
+      }
     } else if (res?.ok) {
-        toast.success(`Moved ${res.moved} files`);
-        setOrgApply(false);
-        setOrgPlan([]);
+      toast.success(`Moved ${res.moved} files`);
+      setOrgApply(false);
+      setOrgPlan([]);
     } else {
-        toast.error(res.error || 'Apply failed');
+      toast.error(res.error || 'Apply failed');
     }
-};
+  };
 
   const libName = (id) => (libs.find((l) => l.id === id) || {}).name || '—';
 

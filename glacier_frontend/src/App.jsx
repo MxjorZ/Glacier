@@ -44,10 +44,7 @@ export default function App() {
 
   const [ctx, setCtx] = useState(null);
   useEffect(() => {
-    const onCtx = (e) => {
-      e.preventDefault();
-      setCtx({ x: e.clientX, y: e.clientY });
-    };
+    const onCtx = (e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); };
     const onCloseCtx = () => setCtx(null);
     window.addEventListener('contextmenu', onCtx);
     window.addEventListener('click', onCloseCtx);

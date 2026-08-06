@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Mic, Folder, Music2, RefreshCw, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Mic, Folder, RefreshCw } from 'lucide-react';
 import { api } from '../../api.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card.jsx';
 import { Button } from '@/components/ui/button.jsx';
-import { Input } from '@/components/ui/input.jsx';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Empty } from '../../components/PageHeader.jsx';
@@ -27,13 +26,10 @@ export default function AudioQualityAnalyzer() {
     }).catch(() => {});
   }, []);
 
-  // Load tracks when library changes
   useEffect(() => {
     if (!libId) return;
     api.tracks({ library_id: libId, page: 1, per_page: 1000 })
-      .then((res) => {
-        setTracks(res.items || []);
-      })
+      .then((res) => setTracks(res.items || []))
       .catch(() => {});
   }, [libId]);
 
@@ -158,23 +154,15 @@ export default function AudioQualityAnalyzer() {
               <InfoItem label="Sample Rate" value={formatSampleRate(audioInfo.sample_rate)} />
               <InfoItem label="Channels" value={audioInfo.channels ? (audioInfo.channels === 1 ? 'Mono' : 'Stereo') : '–'} />
               <InfoItem label="Bits per sample" value={audioInfo.bits_per_sample ? `${audioInfo.bits_per_sample} bit` : '–'} />
-              <InfoItem label="File size" value={
-                audioInfo.path ? formatSize(require('fs')?.statSync?.(audioInfo.path)?.size) : '–'
-              } />
+              <InfoItem label="File size" value={audioInfo.file_size ? formatSize(audioInfo.file_size) : '–'} />
             </div>
           </CardContent>
         </Card>
       )}
 
-      {!audioInfo && !loading && (
-        <Empty text="Select a track or browse a file to analyze audio quality." />
-      )}
+      {!audioInfo && !loading && <Empty text="Select a track or browse a file to analyze audio quality." />}
 
-      <FileExplorer
-        open={picker}
-        onClose={() => setPicker(false)}
-        onSelect={onFileExplorerSelect}
-      />
+      <FileExplorer open={picker} onClose={() => setPicker(false)} onSelect={onFileExplorerSelect} />
     </div>
   );
 }

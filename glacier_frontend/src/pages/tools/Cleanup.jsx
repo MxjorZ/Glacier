@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Trash2, AlertTriangle, FileX, CheckCircle } from 'lucide-react';
+import { Search, Trash2, CheckCircle } from 'lucide-react';
 import { api } from '../../api.js';
 import { useJob } from '../../useJob.js';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card.jsx';

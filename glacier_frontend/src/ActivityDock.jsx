@@ -146,14 +146,14 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
   const errorCount = errors.length;
 
   const visibleLogs = useMemo(() => {
-    let list = logs;
-    if (filter !== 'all') list = list.filter((l) => catOf(l) === filter);
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      list = list.filter((l) => `${l.message || ''} ${l.label || ''}`.toLowerCase().includes(q));
-    }
-    return list.slice(-1000); // <-- changed from 400 to 1000
-  }, [logs, filter, query]);
+      let list = logs;
+      if (filter !== 'all') list = list.filter((l) => catOf(l) === filter);
+      if (query.trim()) {
+        const q = query.toLowerCase();
+        list = list.filter((l) => `${l.message || ''} ${l.label || ''}`.toLowerCase().includes(q));
+      }
+      return list.slice(-1000);
+    }, [logs, filter, query]);
 
   useEffect(() => {
     if (autoScroll && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;

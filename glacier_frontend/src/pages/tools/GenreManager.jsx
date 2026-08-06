@@ -11,7 +11,6 @@ import { Confirm } from '../../components/dialog-helpers.jsx';
 import { toast } from '../../toast.jsx';
 import { cn } from '@/lib/utils.js';
 
-// Poll /api/jobs/history until a 'genres' job completes.
 async function runGenreJob(startResp) {
   const jid = startResp?.job?.id;
   for (let i = 0; i < 120; i++) {

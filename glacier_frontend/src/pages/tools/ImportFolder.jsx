@@ -97,11 +97,7 @@ export default function ImportFolder() {
         </CardContent>
       </Card>
 
-      <FileExplorer
-        open={picker}
-        onClose={() => setPicker(false)}
-        onSelect={onFileExplorerSelect}
-      />
+      <FileExplorer open={picker} onClose={() => setPicker(false)} onSelect={onFileExplorerSelect} />
     </div>
   );
 }

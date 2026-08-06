@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   FolderTree, Copy, ShieldAlert, UserCheck, Trash2, FolderPlus,
-  Music2, Tag, Mic, FileSearch, LayoutGrid,
+  Music2, Tag, Mic, FileSearch,
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader.jsx';
 import Organize from './tools/Organize.jsx';
@@ -52,7 +52,7 @@ export default function Tools() {
         title="Tools"
         description="All music management utilities in one place."
       />
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="tool-grid">
         {TOOLS.map(({ id, label, Icon }) => (
           <button
             key={id}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { RefreshCw, Copy } from 'lucide-react';
 import { api } from '../../api.js';
 import { useJob } from '../../useJob.js';
@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button.jsx';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select.jsx';
 import { Empty } from '../../components/PageHeader.jsx';
 import { toast } from '../../toast.jsx';
-import { useEffect } from 'react';
 
 export default function Duplicates() {
   const [libs, setLibs] = useState([]);
