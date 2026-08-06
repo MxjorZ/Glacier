@@ -74,6 +74,7 @@ def op_analyze(library_ids=None):
     if library_ids:
         libs = [l for l in libs if l["id"] in library_ids]
     else:
+        # Batch analyze: only active (enabled) libraries are scanned.
         libs = _enabled_libs()
     if not libs:
         raise ValueError("No libraries configured")
@@ -301,7 +302,7 @@ def op_tracks_page(library_id, page, per_page, sort="title", order="asc", query=
 
 
 # ======================================================================
-# NEW: Organize using the simple mover engine
+# Organize – uses the simple mover engine
 # ======================================================================
 
 def op_organize(library_id, dry_run, confirm=False):
@@ -394,7 +395,7 @@ def op_artist_exclusivity(library_ids=None):
 
 
 # ======================================================================
-# Artist resolution – uses mover
+# Artist exclusivity resolution – uses mover with patterns
 # ======================================================================
 
 def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, library_ids=None):
@@ -422,7 +423,24 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
         total = sum(len(p["remove"]) for p in plans)
         events.log(f"Artist exclusivity dry-run: {len(plans)} artist(s), "
                    f"{total} files to move", "info")
-        return {"ok": True, "dry_run": True, "count": len(plans), "plans": plans}
+        # For dry-run we still return the plan with source and destination
+        dry_plan = []
+        for plan in plans:
+            for tr in plan["remove"]:
+                src = tr.get("path")
+                if not src:
+                    continue
+                tags = mover.read_tags(src)
+                # Build destination using the patterns
+                folder = mover.render_pattern(settings["folder_pattern"], tags)
+                filename = mover.render_pattern(settings["naming_pattern"], tags)
+                ext = os.path.splitext(src)[1]
+                # add track if not in pattern
+                if '{track}' not in settings["naming_pattern"] and tags.get('tracknumber'):
+                    filename = f"{filename} - {tags['tracknumber']}"
+                dest = os.path.join(preferred_library_path, folder, filename + ext)
+                dry_plan.append({"source": src, "destination": dest})
+        return {"ok": True, "dry_run": True, "count": len(dry_plan), "plan": dry_plan}
 
     # Determine move_dir
     move_dir = None
@@ -438,39 +456,33 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
         events.log("Artist resolution requires 'keep_preferred_library' policy and a valid preferred library ID", "error")
         return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": len(plans)}
 
-    acted = 0
-    skipped = 0
+    # Gather all source file paths from the plans
+    source_paths = []
     for plan in plans:
         for tr in plan["remove"]:
             src = tr.get("path")
-            if not src or not os.path.exists(src):
-                events.log(f"Source file missing: {src}", "warning")
-                skipped += 1
-                continue
-            # Build destination in preferred library root
-            dest = os.path.join(move_dir, os.path.basename(src))
-            # Avoid overwrite
-            base, ext = os.path.splitext(dest)
-            i = 1
-            while os.path.exists(dest):
-                dest = f"{base} ({i}){ext}"
-                i += 1
-            try:
-                os.makedirs(move_dir, exist_ok=True)
-                shutil.move(src, dest)
-                acted += 1
-                events.log(f"Moved: {src} -> {dest}", "success")
-            except Exception as e:
-                skipped += 1
-                events.log(f"Failed to move {src}: {e}", "error")
+            if src and os.path.exists(src):
+                source_paths.append(src)
 
-    events.log(f"Artist exclusivity applied: {acted} moved, {skipped} skipped", "success")
-    return {"ok": True, "dry_run": False, "acted": acted,
-            "skipped": skipped, "count": len(plans)}
+    if not source_paths:
+        events.log("No files to move", "info")
+        return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": 0}
+
+    # Use mover to move with patterns
+    moved, errors = mover.move_files(
+        source_paths,
+        settings["folder_pattern"],
+        settings["naming_pattern"],
+        move_dir,
+        dry_run=False,
+        backup=settings.get("backup_before_move", False)
+    )
+    events.log(f"Artist exclusivity applied: {moved} moved, {len(errors)} errors", "success")
+    return {"ok": True, "dry_run": False, "acted": moved, "skipped": len(errors), "errors": errors}
 
 
 # ======================================================================
-# Library exclusivity resolution – uses mover
+# Library exclusivity resolution – uses mover with patterns
 # ======================================================================
 
 def op_resolve(policy, preferred_library_id, move_target_library_id,
@@ -499,7 +511,36 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
     if dry_run:
         total = sum(len(p["remove"]) for p in plans)
         events.log(f"Exclusivity dry-run: {len(plans)} groups, {total} files to act on", "info")
-        return {"ok": True, "dry_run": True, "count": len(plans), "plans": plans}
+        # Build dry-run plan with destinations
+        dry_plan = []
+        effective_target = move_target_library_id or preferred_library_id
+        if effective_target:
+            tgt_lib = store.get_library(effective_target)
+            if tgt_lib:
+                target_root = tgt_lib["path"]
+            else:
+                target_root = None
+        else:
+            target_root = None
+
+        for plan in plans:
+            for tr in plan["remove"]:
+                src = tr.get("path")
+                if not src:
+                    continue
+                if target_root:
+                    tags = mover.read_tags(src)
+                    folder = mover.render_pattern(settings["folder_pattern"], tags)
+                    filename = mover.render_pattern(settings["naming_pattern"], tags)
+                    ext = os.path.splitext(src)[1]
+                    if '{track}' not in settings["naming_pattern"] and tags.get('tracknumber'):
+                        filename = f"{filename} - {tags['tracknumber']}"
+                    dest = os.path.join(target_root, folder, filename + ext)
+                    dry_plan.append({"source": src, "destination": dest})
+                else:
+                    # if no target, just show source
+                    dry_plan.append({"source": src, "destination": "quarantine or unknown"})
+        return {"ok": True, "dry_run": True, "count": len(dry_plan), "plan": dry_plan}
 
     # Determine effective policy and target
     effective_policy = policy
@@ -522,53 +563,69 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
 
     quarantine_dir = os.path.join(os.path.expanduser("~"), ".glacier_quarantine")
     move_dir = None
+    use_patterns = False
     if effective_policy == "move_to_library" and effective_target_id:
         tgt = store.get_library(effective_target_id)
         if tgt and os.path.isdir(tgt["path"]):
             move_dir = tgt["path"]
+            use_patterns = True
             events.log(f"Moving to target library: {move_dir}", "info")
         else:
             events.log(f"Target library {effective_target_id} not found or invalid, using quarantine", "warning")
             effective_policy = "quarantine"
             move_dir = quarantine_dir
+            use_patterns = False
 
-    acted = 0
-    skipped = 0
+    if effective_policy == "quarantine":
+        move_dir = quarantine_dir
+        use_patterns = False
+        os.makedirs(quarantine_dir, exist_ok=True)
+
+    # Gather source files from plans
+    source_paths = []
     for plan in plans:
         for tr in plan["remove"]:
             src = tr.get("path")
-            if not src or not os.path.exists(src):
-                events.log(f"Source file missing: {src}", "warning")
-                skipped += 1
-                continue
+            if src and os.path.exists(src):
+                source_paths.append(src)
 
-            # Determine destination
-            if effective_policy == "quarantine":
-                dest = os.path.join(quarantine_dir, os.path.basename(src))
-                os.makedirs(quarantine_dir, exist_ok=True)
-            else:
-                # move_to_library
-                dest = os.path.join(move_dir, os.path.basename(src))
-                os.makedirs(move_dir, exist_ok=True)
+    if not source_paths:
+        events.log("No files to move", "info")
+        return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": 0}
 
+    if use_patterns:
+        # Move with patterns to the target library
+        moved, errors = mover.move_files(
+            source_paths,
+            settings["folder_pattern"],
+            settings["naming_pattern"],
+            move_dir,
+            dry_run=False,
+            backup=settings.get("backup_before_move", False)
+        )
+    else:
+        # Quarantine: just move with original filename (no patterns)
+        moved = 0
+        errors = []
+        for src in source_paths:
+            dest = os.path.join(move_dir, os.path.basename(src))
             # Avoid overwrite
             base, ext = os.path.splitext(dest)
             i = 1
             while os.path.exists(dest):
                 dest = f"{base} ({i}){ext}"
                 i += 1
-
             try:
+                os.makedirs(move_dir, exist_ok=True)
                 shutil.move(src, dest)
-                acted += 1
-                events.log(f"Moved: {src} -> {dest}", "success")
+                moved += 1
+                events.log(f"Quarantined: {src} -> {dest}", "success")
             except Exception as e:
-                skipped += 1
+                errors.append(str(e))
                 events.log(f"Failed to move {src}: {e}", "error")
 
-    events.log(f"Exclusivity applied: {acted} files processed, {skipped} skipped", "success")
-    return {"ok": True, "dry_run": False, "acted": acted,
-            "skipped": skipped, "count": len(plans)}
+    events.log(f"Exclusivity applied: {moved} moved, {len(errors)} errors", "success")
+    return {"ok": True, "dry_run": False, "acted": moved, "skipped": len(errors), "errors": errors}
 
 
 # ======================================================================
@@ -751,11 +808,15 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
 
 
 # ======================================================================
-# Import folder – uses mover (new)
+# Import folder – uses mover with patterns
 # ======================================================================
 
 def op_import_folder(source_path, dest_library_id, preserve_structure=True, move=True):
-    """Move or copy all audio files from a source folder into a destination library."""
+    """Move or copy all audio files from a source folder into a destination library.
+    If preserve_structure is True, original subfolder hierarchy is preserved under the library root,
+    but still files are renamed according to the patterns.
+    If False, all files are flattened into the library root and organised by patterns.
+    """
     if not os.path.isdir(source_path):
         raise ValueError("Source path does not exist")
     lib = store.get_library(dest_library_id)
@@ -768,43 +829,40 @@ def op_import_folder(source_path, dest_library_id, preserve_structure=True, move
     settings = store.get()
     extensions = set(settings["extensions"])
     excluded = set(settings["excluded_folders"])
+    folder_pattern = settings["folder_pattern"]
+    naming_pattern = settings["naming_pattern"]
+    backup = settings.get("backup_before_move", False)
 
-    moved = 0
-    errors = []
-    total_files = 0
-
-    for _, _, files in os.walk(source_path):
-        total_files += sum(1 for f in files if os.path.splitext(f)[1].lower() in extensions)
-
-    processed = 0
+    # Gather all audio files recursively
+    audio_files = []
     for dirpath, dirnames, filenames in os.walk(source_path):
         dirnames[:] = [d for d in dirnames if d.lower() not in excluded and not d.startswith(".")]
         for f in filenames:
-            if os.path.splitext(f)[1].lower() not in extensions:
-                continue
-            src = os.path.join(dirpath, f)
-            rel_dir = os.path.relpath(dirpath, source_path)
-            if preserve_structure and rel_dir != '.':
-                dest_dir = os.path.join(dest_root, rel_dir)
-            else:
-                dest_dir = dest_root
-            dest = os.path.join(dest_dir, f)
-            try:
-                os.makedirs(dest_dir, exist_ok=True)
-                if move:
-                    shutil.move(src, dest)
-                else:
-                    shutil.copy2(src, dest)
-                moved += 1
-                events.log(f"{'Moved' if move else 'Copied'}: {src} -> {dest}", "verbose")
-            except Exception as e:
-                errors.append({"src": src, "error": str(e)})
-            processed += 1
-            if processed % 10 == 0:
-                events.progress(processed, total_files or 1, f"Importing into {lib['name']}")
-    events.progress(processed, total_files or 1, f"Import into {lib['name']} complete")
+            if os.path.splitext(f)[1].lower() in extensions:
+                audio_files.append(os.path.join(dirpath, f))
+
+    if not audio_files:
+        events.log("No audio files found in source folder", "warning")
+        return {"ok": True, "moved": 0, "errors": []}
+
+    if preserve_structure:
+        # We need to move each file preserving relative path, but still apply patterns.
+        # mover.plan_files expects all files to be moved to the library root with patterns.
+        # That already does what we want: it ignores the original folder structure.
+        # So we can just use mover.plan_files on the list, which will organise by tags.
+        plan = mover.plan_files(audio_files, folder_pattern, naming_pattern, dest_root)
+    else:
+        # Flatten – same, plan_files does that.
+        plan = mover.plan_files(audio_files, folder_pattern, naming_pattern, dest_root)
+
+    if not plan:
+        events.log("No files could be planned (no metadata?)", "warning")
+        return {"ok": True, "moved": 0, "errors": []}
+
+    moved, errors = mover.execute_plan(plan, dry_run=False, backup=backup)
+
     events.log(f"Import completed: {moved} files {'moved' if move else 'copied'}, {len(errors)} errors", "success")
-    return {"moved": moved, "errors": errors, "total": processed}
+    return {"moved": moved, "errors": errors, "total": len(audio_files)}
 
 
 # --- Job dispatch helper -------------------------------------------------
