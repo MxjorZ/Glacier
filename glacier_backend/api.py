@@ -392,21 +392,32 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
                    f"{total} files to move", "info")
         return {"ok": True, "dry_run": True, "count": len(plans), "plans": plans}
 
-    move_dir = None
-    if preferred_library_id:
+    # For artist exclusivity, we always move to the preferred library if policy is keep_preferred_library
+    if policy == "keep_preferred_library" and preferred_library_id:
         tgt = store.get_library(preferred_library_id)
         if tgt:
             move_dir = tgt["path"]
+        else:
+            move_dir = None
+    else:
+        move_dir = None
+
     acted = 0
     skipped = 0
+    total_files = sum(len(p["remove"]) for p in plans)
+    processed = 0
     for plan in plans:
         for tr in plan["remove"]:
+            processed += 1
+            if processed % 10 == 0:
+                events.progress(processed, total_files, f"Resolving artist {plan.get('display', '')}")
             ok, _d = exclusivity.execute_removal(
                 tr, "move_to_library", move_dir=move_dir)
             if ok:
                 acted += 1
             else:
                 skipped += 1
+    events.progress(total_files, total_files, "Artist resolution complete")
     events.log(f"Artist exclusivity applied: {acted} moved, {skipped} skipped", "success")
     return {"ok": True, "dry_run": False, "acted": acted,
             "skipped": skipped, "count": len(plans)}
@@ -427,32 +438,66 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
                 lib, settings["extensions"], settings["excluded_folders"])
     mode = settings["exclusivity"]["identity"]
     violations = exclusivity.scan_violations(inventories, mode, preferred_library_id)
-    plans = [exclusivity.resolve_group(v, policy, preferred_library_id,
-                                       move_target_library_id)
-             for v in violations]
-    plans = [p for p in plans if p["remove"]]
+
+    # Build resolution plans
+    plans = []
+    for v in violations:
+        plan = exclusivity.resolve_group(v, policy, preferred_library_id, move_target_library_id)
+        if plan["remove"]:
+            plans.append(plan)
 
     if dry_run:
         total = sum(len(p["remove"]) for p in plans)
         events.log(f"Exclusivity dry-run: {len(plans)} groups, {total} files to act on", "info")
         return {"ok": True, "dry_run": True, "count": len(plans), "plans": plans}
 
+    # Determine actual move target and effective policy
+    effective_policy = policy
+    effective_target_id = move_target_library_id
+
+    # If policy is keep_preferred_library, treat as move_to_library with preferred as target
+    if policy == "keep_preferred_library":
+        if preferred_library_id:
+            effective_policy = "move_to_library"
+            effective_target_id = preferred_library_id
+        else:
+            events.log("keep_preferred_library requires a preferred library id", "warning")
+            return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": len(plans)}
+
+    # If policy is move_to_library but no target, fallback to preferred
+    if effective_policy == "move_to_library" and not effective_target_id:
+        if preferred_library_id:
+            effective_target_id = preferred_library_id
+        else:
+            events.log("move_to_library requires a target library id", "warning")
+            return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": len(plans)}
+
     quarantine_dir = os.path.join(os.path.expanduser("~"), ".glacier_quarantine")
     move_dir = None
-    if policy == "move_to_library" and move_target_library_id:
-        tgt = store.get_library(move_target_library_id)
+    if effective_policy == "move_to_library" and effective_target_id:
+        tgt = store.get_library(effective_target_id)
         if tgt:
             move_dir = tgt["path"]
+        else:
+            events.log(f"Target library {effective_target_id} not found", "error")
+            return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": len(plans)}
+
     acted = 0
     skipped = 0
+    total_files = sum(len(p["remove"]) for p in plans)
+    processed = 0
     for p in plans:
         for tr in p["remove"]:
+            processed += 1
+            if processed % 10 == 0:
+                events.progress(processed, total_files, f"Resolving duplicates ({processed}/{total_files})")
             ok, _detail = exclusivity.execute_removal(
-                tr, policy, quarantine_dir=quarantine_dir, move_dir=move_dir)
+                tr, effective_policy, quarantine_dir=quarantine_dir, move_dir=move_dir)
             if ok:
                 acted += 1
             else:
                 skipped += 1
+    events.progress(total_files, total_files, "Exclusivity resolution complete")
     events.log(
         f"Exclusivity applied: {acted} files processed, {skipped} skipped", "success")
     return {"ok": True, "dry_run": False, "acted": acted,
@@ -496,7 +541,16 @@ def op_cleanup_apply(library_id, kind, paths, confirm=False):
     removed = 0
     errors = []
     if kind in ("empty", "dup_fold"):
-        removed, errors = cleaner.apply_remove_dirs(paths)
+        # emit progress as we remove
+        total = len(paths)
+        for i, p in enumerate(paths):
+            removed, err = cleaner.apply_remove_dirs([p])
+            if err:
+                errors.extend(err)
+            removed += removed
+            if i % 10 == 0:
+                events.progress(i+1, total, f"Removing {kind}")
+        events.progress(total, total, f"Cleanup complete")
     events.log(f"Cleanup applied ({kind}): {removed} removed", "success")
     return {"ok": True, "removed": removed, "errors": errors}
 

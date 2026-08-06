@@ -254,7 +254,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
                     <span className="flex items-center gap-1.5 font-mono text-muted-foreground">
                       {j.eta != null
                         ? <span className="text-primary">~{fmtDur(j.eta)} left</span>
-                        : <span className="text-muted-foreground">eta –</span>}
+                        : j.p ? <span className="text-muted-foreground">waiting…</span> : <span className="text-muted-foreground">processing…</span>}
                       <span>{fmtDur(j.elapsed)}</span>
                     </span>
                   </div>
