@@ -11,6 +11,7 @@ Format specs (e.g. {track:02d}) are supported.
 
 import os
 import re
+import shutil
 
 from .. import events
 
@@ -75,18 +76,11 @@ def preview_path(folder_pattern, naming_pattern, tags, library_root=None,
     }
 
 
-
 def sanitize(name, fallback="Unknown"):
     name = _INVALID_CHARS.sub(" ", name or "")
     name = _WS.sub(" ", name).strip().rstrip(".")
     name = name[:120]  # avoid path-too-long issues
     return name or fallback
-
-
-def _safe_album_albumartist(tags, pattern):
-    albumartist = tags.get("albumartist") or tags.get("artist") or ""
-    album = tags.get("album") or ""
-    return albumartist, album
 
 
 def render(pattern, tags, track_num=None, year=None):
@@ -96,6 +90,9 @@ def render(pattern, tags, track_num=None, year=None):
         field = spec.split(":")[0]
         fmt = spec.split(":", 1)[1] if ":" in spec else ""
         value = tags.get(field, "")
+        # FALLBACK: if field is albumartist and empty, use artist
+        if field == "albumartist" and not value:
+            value = tags.get("artist", "")
         if field == "track":
             value = track_num if track_num is not None else tags.get("track", "")
         elif field == "year":
@@ -124,7 +121,6 @@ def plan_library(tracks, root, folder_pattern, naming_pattern):
         if tr.get("error"):
             continue
         tags = tr.get("tags", {})
-        albumartist, album = _safe_album_albumartist(tags, folder_pattern)
         # track number: prefer numeric portion ("2" from "2/12").
         raw_track = tags.get("track", "")
         track_num = None
@@ -187,7 +183,8 @@ def apply_plan(plan, root, backup=False):
                 raise ValueError("Destination escapes library root")
             if backup:
                 bak = src + ".bak"
-                os.replace(src, bak) if os.path.exists(src) else None
+                if os.path.exists(src):
+                    shutil.copy2(src, bak)   # FIX: copy, not rename
             os.replace(src, dst)
             moved += 1
         except Exception as exc:  # noqa: BLE001

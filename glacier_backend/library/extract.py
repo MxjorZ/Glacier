@@ -19,6 +19,7 @@ import shutil
 
 from .. import events
 from .exclusivity import normalize
+from ..cancel import is_cancelled, JobCancelled   # <-- ADDED
 
 HEBREW_RE = re.compile(r"[\u0590-\u05ff\uFB1D-\uFB4F]")
 CYRILLIC_RE = re.compile(r"[\u0400-\u04ff]")

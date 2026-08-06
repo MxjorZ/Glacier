@@ -86,7 +86,7 @@ def find_dup_folders(tracks, root):
 
     shells = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = []
+        # REMOVED the line: dirnames[:] = []   <-- FIXED: now recurses into subfolders
         audio_here = any(
             os.path.splitext(f)[1].lower() in {".flac", ".mp3", ".ogg", ".m4a", ".opus", ".wma"}
             for f in filenames

@@ -126,12 +126,24 @@ def write(path, tag_dict):
                 if canon in tag_dict:
                     audio[native] = [str(tag_dict[canon])] if tag_dict[canon] else []
         else:
+            # Ensure ID3 exists before writing to MP3
+            ensure_id3(path)
+            # Reload audio after ensure_id3 (it may have been created)
+            audio = cls(path)
+            if audio.tags is None:
+                # Fallback: create an empty ID3 container manually
+                audio.add_tags()
             for canon, (fid, kind) in _MP3_MAP.items():
                 if canon not in tag_dict:
                     continue
                 val = tag_dict[canon]
                 native = _native_mp3_frame(canon, val)
-                audio.tags.setall(fid, [native] if native else [])
+                # If native is None, skip (e.g., rating conversion failed)
+                if native is not None:
+                    audio.tags.setall(fid, [native])
+                else:
+                    # If we want to delete the tag, set empty list
+                    audio.tags.setall(fid, [])
         audio.save()
         return {"ok": True, "path": path}
     except Exception as exc:  # noqa: BLE001
