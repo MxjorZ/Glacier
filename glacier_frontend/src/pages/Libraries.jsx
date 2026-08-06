@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from "react";
-import { Plus, RefreshCw, Pencil, Trash2, Folder, HardDrive, UserCheck, MoveRight, CheckCircle2, CircleOff, AlertTriangle, Loader2, ServerOff } from "lucide-react";
+import { Plus, RefreshCw, Pencil, Trash2, Folder, MoveRight, CheckCircle2, CircleOff, AlertTriangle, Loader2, ServerOff } from "lucide-react";
 import { api, fmtBytes, fmtDate } from "../api.js";
 import FileExplorer from "../FileExplorer.jsx";
 import { useJob } from "../useJob.js";
@@ -15,16 +15,6 @@ import { PageHeader, Empty } from "../components/PageHeader.jsx";
 import { Modal, Confirm } from "../components/dialog-helpers.jsx";
 import { toast } from "../toast.jsx";
 
-// Artist exclusivity policies with descriptions
-const ARTIST_POLICIES = [
-  { value: "report_only", label: "Report only" },
-  { value: "keep_preferred_library", label: "Keep preferred library" },
-];
-const ARTIST_POLICY_DESCRIPTIONS = {
-  report_only: "Scans for artists that appear in more than one library, but makes zero changes. Just shows you the list.",
-  keep_preferred_library: "Keeps all tracks of the artist in your Preferred Library. Moves every track from other libraries INTO that Preferred Library. Best for consolidating an artist into one library.",
-};
-
 export default function Libraries() {
   // ---- Server connection + load state ----
   const [conn, setConn] = useState("loading"); // 'loading' | 'ok' | 'error'
@@ -36,32 +26,6 @@ export default function Libraries() {
   const [rename, setRename] = useState(null);
   const [renameVal, setRenameVal] = useState("");
   const [removeId, setRemoveId] = useState(null);
-
-  // ---- Artist exclusivity (Stage 2) ----
-  const [artistPolicy, setArtistPolicy] = useState("report_only");
-  const [artistPref, setArtistPref] = useState("");
-  const [artistGroups, setArtistGroups] = useState([]);
-  const [artistPlans, setArtistPlans] = useState([]);
-  const [artistApply, setArtistApply] = useState(false);
-
-  const scanArtists = async () => {
-    const res = await api.artistExclusivity();
-    if (res?.ok) { setArtistGroups(res.groups || []); toast.success(`${res.count} artist violation(s)`); }
-    else toast.error(res.error || "Scan failed");
-  };
-  const resolveArtists = async (dry) => {
-    const res = await api.resolveArtistExclusivity({
-      policy: artistPolicy, preferred_library_id: artistPref,
-      dry_run: dry, confirm: !dry,
-    });
-    if (dry) {
-      if (res?.ok) { setArtistPlans(res.plans || []); toast.success(`${res.count} artist(s) would be moved`); }
-      else toast.error(res.error || "Dry-run failed");
-    } else if (res?.ok) {
-      toast.success(`${res.acted} moved, ${res.skipped} skipped`);
-      setArtistApply(false); setArtistPlans([]); refresh();
-    } else toast.error(res.error || "Apply failed");
-  };
 
   // ---- Create library & move (Stage 2) ----
   const [extOpen, setExtOpen] = useState(false);
@@ -336,70 +300,6 @@ export default function Libraries() {
         )
       )}
 
-      {/* Artist exclusivity (Stage 2) */}
-      <Card className="mt-4">
-        <CardHeader className="border-b">
-          <CardTitle className="flex items-center gap-2"><UserCheck className="size-4 text-primary" /> Artist exclusivity</CardTitle>
-          <CardDescription>Artists that appear in more than one library (one library per artist)</CardDescription>
-          <CardAction>
-            <Button variant="outline" size="sm" disabled={running} onClick={scanArtists}>
-              <RefreshCw className="size-3.5" /> Scan
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Resolution policy</label>
-              <Select value={artistPolicy} onValueChange={setArtistPolicy}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {ARTIST_POLICIES.map((p) => (
-                    <SelectItem key={p.value} value={p.value} title={ARTIST_POLICY_DESCRIPTIONS[p.value]}>
-                      {p.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {/* Description box */}
-              {ARTIST_POLICY_DESCRIPTIONS[artistPolicy] && (
-                <div className="mt-1 rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  <strong>What this does:</strong> {ARTIST_POLICY_DESCRIPTIONS[artistPolicy]}
-                </div>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Preferred library</label>
-              <Select value={artistPref} onValueChange={setArtistPref}>
-                <SelectTrigger className="w-full"><SelectValue placeholder="None" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">None</SelectItem>
-                  {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {artistGroups.length > 0 && (
-            <div className="max-h-40 space-y-1 overflow-auto rounded-lg border bg-muted/30 p-2 text-xs">
-              {artistGroups.map((g) => (
-                <div key={g.artist} className="border-b border-border/40 py-0.5">
-                  <span className="font-medium">{g.display}</span>
-                  <span className="text-muted-foreground"> - {g.libraries.map((l) => libName(l.library_id) + " (" + l.count + ")").join(", ")}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={running} onClick={() => resolveArtists(true)}>
-              <RefreshCw className="size-3.5" /> Resolve dry run
-            </Button>
-            <Button size="sm" disabled={running} onClick={() => setArtistApply(true)}>Apply</Button>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Create library & move (Stage 2) */}
       <Card className="mt-4">
         <CardHeader className="border-b">
@@ -503,14 +403,6 @@ export default function Libraries() {
         onCancel={() => setExtApply(false)}
         onConfirm={applyExtract}
         confirmLabel="Create & move"
-      />
-      <Confirm
-        open={artistApply}
-        title="Apply artist exclusivity resolution?"
-        message="Glacier will move the artist's files out of all non-preferred libraries, leaving the artist in one library only."
-        onCancel={() => setArtistApply(false)}
-        onConfirm={() => resolveArtists(false)}
-        confirmLabel="Apply"
       />
 
       <FileExplorer open={picker} onClose={() => setPicker(false)} onSelect={(p, paths) => {

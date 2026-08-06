@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Music2, RefreshCw, Replace, Merge, Eraser, Save } from 'lucide-react';
-import { api } from '../api.js';
+import { api } from '../../api.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import { Input } from '@/components/ui/input.jsx';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select.jsx';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table.jsx';
-import { PageHeader, Empty } from '../components/PageHeader.jsx';
-import { Confirm } from '../components/dialog-helpers.jsx';
-import { toast } from '../toast.jsx';
+import { Empty } from '../../components/PageHeader.jsx';
+import { Confirm } from '../../components/dialog-helpers.jsx';
+import { toast } from '../../toast.jsx';
 import { cn } from '@/lib/utils.js';
 
 // Poll /api/jobs/history until a 'genres' job completes.
@@ -23,7 +23,7 @@ async function runGenreJob(startResp) {
   return { ok: false, error: 'Timed out waiting for genre job' };
 }
 
-export default function Genres() {
+export default function GenreManager() {
   const [libs, setLibs] = useState([]);
   const [libId, setLibId] = useState('');
   const [genres, setGenres] = useState([]);
@@ -51,6 +51,7 @@ export default function Genres() {
     api.genres(libId).then((res) => setGenres(res?.genres || []))
       .catch((e) => toast.error(e.message)).finally(() => setLoaded(true));
   }, [libId]);
+
   const libName = (id) => (libs.find((l) => l.id === id) || {}).name || '—';
 
   const refresh = async () => {
@@ -95,21 +96,18 @@ export default function Genres() {
     if (op === 'bulk') return `Set the genre of every track in “${libName(libId)}” to “${bulkValue}”?`;
     return 'Continue?';
   };
+
   return (
     <div>
-      <PageHeader title="Genres" description="Manage the genres used across a library — replace, merge, or remove them in bulk.">
-        <div className="flex items-center gap-2">
-          {libs.length > 0 && (
-            <Select value={libId} onValueChange={setLibId}>
-              <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          )}
-          <Button variant="outline" onClick={refresh} disabled={!libId || busy}><RefreshCw className={busy ? 'size-4 animate-spin' : 'size-4'} /> Refresh</Button>
-        </div>
-      </PageHeader>
+      <div className="mb-4 flex items-center gap-2">
+        <Select value={libId} onValueChange={setLibId}>
+          <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Button variant="outline" onClick={refresh} disabled={!libId || busy}><RefreshCw className={busy ? 'size-4 animate-spin' : 'size-4'} /> Refresh</Button>
+      </div>
 
       <div className="mb-4 grid grid-cols-3 gap-4">
         <MiniStat label="Genres" value={genres.length} />

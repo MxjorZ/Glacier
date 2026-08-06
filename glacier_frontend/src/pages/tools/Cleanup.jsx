@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Search, Trash2, AlertTriangle, FileX, CheckCircle } from 'lucide-react';
-import { api } from '../api.js';
-import { useJob } from '../useJob.js';
+import { api } from '../../api.js';
+import { useJob } from '../../useJob.js';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select.jsx';
-import { PageHeader, Empty } from '../components/PageHeader.jsx';
-import { Confirm } from '../components/dialog-helpers.jsx';
-import { toast } from '../toast.jsx';
+import { Empty } from '../../components/PageHeader.jsx';
+import { Confirm } from '../../components/dialog-helpers.jsx';
+import { toast } from '../../toast.jsx';
 
 const KINDS = [
   { value: 'empty', label: 'Empty Folders' },
@@ -48,11 +48,6 @@ export default function Cleanup() {
 
   return (
     <div>
-      <PageHeader
-        title="Cleanup"
-        description="Identify and purge empty directories, folder shells, and problematic files."
-      />
-
       <Card>
         <CardHeader>
           <CardTitle>Cleanup Configuration</CardTitle>

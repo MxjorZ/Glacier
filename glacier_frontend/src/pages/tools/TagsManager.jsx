@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { FolderOpen, PencilLine, Save, Folder, ListMusic, ArrowUpDown, Search } from 'lucide-react';
-import { api } from '../api.js';
+import { api } from '../../api.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import { Input, Textarea } from '@/components/ui/input.jsx';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select.jsx';
-import { PageHeader, Empty } from '../components/PageHeader.jsx';
-import { FolderPicker } from './tag-folder-picker.jsx';
-import { toast } from '../toast.jsx';
+import { PageHeader, Empty } from '../../components/PageHeader.jsx';
+import { FolderPicker } from '../tag-folder-picker.jsx';
+import { toast } from '../../toast.jsx';
 
 const FIELDS = [
   { value: 'title', label: 'Title' },

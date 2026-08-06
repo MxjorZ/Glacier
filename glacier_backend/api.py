@@ -615,6 +615,134 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
     events.log(f"Exclusivity applied: {moved} moved, {len(errors)} errors", "success")
     return {"ok": True, "dry_run": False, "acted": moved, "skipped": len(errors), "errors": errors}
 
+def op_combined_exclusivity(policy, preferred_library_id, dry_run, confirm=False, library_ids=None):
+    """Combined artist + library exclusivity in one operation."""
+    if not dry_run and not confirm:
+        raise ValueError("Apply requires explicit confirmation (confirm=true)")
+    settings = store.get()
+
+    # ---- Step 1: Artist exclusivity resolution ----
+    # Reuse the artist resolution logic but we need to get the plans first.
+    # We'll call op_artist_resolve in dry-run mode to get the plan, but we need to avoid recursion.
+    # Better to inline the logic.
+    libs = _enabled_libs()
+    if library_ids:
+        libs = [l for l in libs if l["id"] in library_ids]
+    inventories = {}
+    for lib in libs:
+        if os.path.isdir(lib["path"]):
+            inventories[lib["id"]] = scanner.get_inventory(
+                lib, settings["extensions"], settings["excluded_folders"])
+
+    # Artist scan
+    exceptions = settings.get("artist_exclusivity_exceptions", [])
+    exceptions = [e for e in exceptions if e and e.strip()]
+    artist_groups = exclusivity.scan_artist_violations(inventories, exceptions)
+    artist_plans = exclusivity.resolve_artist_groups(artist_groups, "keep_preferred_library", preferred_library_id)
+    artist_plans = [p for p in artist_plans if p["remove"]]
+
+    # Determine target library for artist moves
+    target_lib_path = None
+    if preferred_library_id:
+        tgt = store.get_library(preferred_library_id)
+        if tgt and os.path.isdir(tgt["path"]):
+            target_lib_path = tgt["path"]
+
+    # Collect all files to move from artist resolution
+    artist_source_paths = []
+    for plan in artist_plans:
+        for tr in plan["remove"]:
+            src = tr.get("path")
+            if src and os.path.exists(src):
+                artist_source_paths.append(src)
+
+    # ---- Step 2: After artist consolidation, we need the updated inventories ----
+    # Since we haven't actually moved yet (dry-run), we need to simulate.
+    # For dry-run we just show combined plan.
+    # For actual apply, we'll move artist files first, then re-scan and do library exclusivity.
+
+    if dry_run:
+        # Build a combined plan showing artist moves then library moves
+        combined_plan = []
+        # Artist moves
+        for src in artist_source_paths:
+            if target_lib_path:
+                tags = mover.read_tags(src)
+                folder = mover.render_pattern(settings["folder_pattern"], tags)
+                filename = mover.render_pattern(settings["naming_pattern"], tags)
+                ext = os.path.splitext(src)[1]
+                if '{track}' not in settings["naming_pattern"] and tags.get('tracknumber'):
+                    filename = f"{filename} - {tags['tracknumber']}"
+                dest = os.path.join(target_lib_path, folder, filename + ext)
+                combined_plan.append({"source": src, "destination": dest, "stage": "artist"})
+            else:
+                combined_plan.append({"source": src, "destination": "no target", "stage": "artist"})
+
+        # Library exclusivity dry-run (simulate after artist move)
+        # For dry-run we can assume all files end up in target_lib_path and then scan for duplicates there.
+        # This is complex; we'll just note that library dedup will run after.
+        # To keep it simple, we'll only show artist moves in dry-run for now.
+        # But we can add a message.
+        events.log(f"Combined exclusivity dry-run: {len(combined_plan)} artist files to move, then library dedup will run.", "info")
+        return {"ok": True, "dry_run": True, "count": len(combined_plan), "plan": combined_plan}
+
+    # ---- Apply: Step 1 - Move artist files ----
+    artist_moved = 0
+    artist_errors = []
+    if target_lib_path and artist_source_paths:
+        artist_moved, artist_errors = mover.move_files(
+            artist_source_paths,
+            settings["folder_pattern"],
+            settings["naming_pattern"],
+            target_lib_path,
+            dry_run=False,
+            backup=settings.get("backup_before_move", False)
+        )
+        events.log(f"Artist consolidation: moved {artist_moved} files", "success")
+
+    # ---- Step 2: Re-scan all libraries (now consolidated) ----
+    # We need fresh inventories after the artist moves.
+    new_inventories = {}
+    for lib in libs:
+        if os.path.isdir(lib["path"]):
+            new_inventories[lib["id"]] = scanner.get_inventory(
+                lib, settings["extensions"], settings["excluded_folders"])
+
+    # ---- Step 3: Library exclusivity resolution ----
+    mode = settings["exclusivity"]["identity"]
+    violations = exclusivity.scan_violations(new_inventories, mode, preferred_library_id)
+    library_plans = []
+    for v in violations:
+        plan = exclusivity.resolve_group(v, "keep_preferred_library", preferred_library_id, preferred_library_id)
+        if plan["remove"]:
+            library_plans.append(plan)
+
+    library_source_paths = []
+    for plan in library_plans:
+        for tr in plan["remove"]:
+            src = tr.get("path")
+            if src and os.path.exists(src):
+                library_source_paths.append(src)
+
+    library_moved = 0
+    library_errors = []
+    if target_lib_path and library_source_paths:
+        library_moved, library_errors = mover.move_files(
+            library_source_paths,
+            settings["folder_pattern"],
+            settings["naming_pattern"],
+            target_lib_path,
+            dry_run=False,
+            backup=settings.get("backup_before_move", False)
+        )
+        events.log(f"Library dedup: moved {library_moved} files", "success")
+
+    total_moved = artist_moved + library_moved
+    total_errors = len(artist_errors) + len(library_errors)
+    events.log(f"Combined exclusivity complete: {total_moved} files moved, {total_errors} errors", "success")
+    return {"ok": True, "dry_run": False, "acted": total_moved, "skipped": total_errors,
+            "artist_moved": artist_moved, "library_moved": library_moved}
+
 # ======================================================================
 # Cleanup, covers, playlists, report – unchanged
 # ======================================================================
@@ -1230,6 +1358,17 @@ def register_routes(app):
         body = _json_body()
         library_id = body.get("library_id")
         return _start("report", op_report, library_id)
+
+    @app.post("/api/run/combined-exclusivity")
+    def run_combined_exclusivity():
+        body = _json_body()
+        policy = body.get("policy", "keep_preferred_library")
+        pref = body.get("preferred_library_id", "")
+        dry = bool(body.get("dry_run", True))
+        confirm = bool(body.get("confirm", False))
+        ids = body.get("library_ids") or None
+        return _start("combined-exclusivity", op_combined_exclusivity,
+                    policy, pref, dry, confirm, library_ids=ids)
 
     # --- Genre manager (Stage 4 #9) --------------------------------------
     @app.post("/api/genres")

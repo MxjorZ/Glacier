@@ -11,16 +11,13 @@ import ActivityDock from './ActivityDock.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Libraries from './pages/Libraries.jsx';
 import Tools from './pages/Tools.jsx';
-import Genres from './pages/Genres.jsx';
-import Cleanup from './pages/Cleanup.jsx';
-import Tags from './pages/Tags.jsx';
 import Plex from './pages/Plex.jsx';
 import Logs from './pages/Logs.jsx';
 import Errors from './pages/Errors.jsx';
 import Settings from './pages/Settings.jsx';
 import About from './pages/About.jsx';
 
-const VALID = ['dashboard', 'libraries', 'tools', 'genres', 'cleanup', 'tags', 'plex', 'logs', 'errors', 'settings', 'about'];
+const VALID = ['dashboard', 'libraries', 'tools', 'plex', 'logs', 'errors', 'settings', 'about'];
 
 function readHash() {
   const h = window.location.hash.replace(/^#\/?/, '');
@@ -37,7 +34,6 @@ export default function App() {
   const handleEvent = (data) => playJobSound(data, settingsRef.current);
   const { jobs, progress, logs, errors, dismissError, clearErrors } = useSSE(handleEvent);
 
-  // Surface every new error as a notification (toast), regardless of the page.
   const seenErrors = useRef(0);
   useEffect(() => {
     while (seenErrors.current < errors.length) {
@@ -46,7 +42,6 @@ export default function App() {
     }
   }, [errors]);
 
-  // Stage 4 #2: right-click anywhere opens the context menu (Error Center, Logs).
   const [ctx, setCtx] = useState(null);
   useEffect(() => {
     const onCtx = (e) => {
@@ -67,7 +62,6 @@ export default function App() {
   useEffect(() => {
     api.system().then(setSys).catch(() => {});
     api.settings().then((s) => { setSettings(s); applySettingsTheme(s); }).catch(() => {});
-    // Unlock audio playback on the first user gesture (autoplay policy).
     const unlock = () => unlockAudio();
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
@@ -87,9 +81,6 @@ export default function App() {
       <Sidebar page={page} onNavigate={nav} />
       <TitleBar sys={sys} jobsCount={Object.keys(jobs).length} errorCount={errors.length} onErrors={() => nav('errors')} onLogs={() => nav('logs')} />
       <main className="ml-14 mt-10 h-[calc(100vh-40px)] overflow-y-auto px-4 pt-6 pb-16 md:px-8">
-        {/* All pages stay mounted (hidden with CSS) so navigating doesn't reset
-            their state or drop live SSE updates — selections, loaded data and
-            background-progress views persist across page switches. */}
         <div className="mx-auto w-full max-w-6xl">
           <div style={{ display: page === 'dashboard' ? undefined : 'none' }} className={`anim-fade ${page === 'dashboard' ? '' : 'hidden'}`}>
             <Dashboard onNavigate={nav} />
@@ -99,15 +90,6 @@ export default function App() {
           </div>
           <div style={{ display: page === 'tools' ? undefined : 'none' }} className={`anim-fade ${page === 'tools' ? '' : 'hidden'}`}>
             <Tools />
-          </div>
-          <div style={{ display: page === 'genres' ? undefined : 'none' }} className={`anim-fade ${page === 'genres' ? '' : 'hidden'}`}>
-            <Genres />
-          </div>
-          <div style={{ display: page === 'cleanup' ? undefined : 'none' }} className={`anim-fade ${page === 'cleanup' ? '' : 'hidden'}`}>
-            <Cleanup />
-          </div>
-          <div style={{ display: page === 'tags' ? undefined : 'none' }} className={`anim-fade ${page === 'tags' ? '' : 'hidden'}`}>
-            <Tags />
           </div>
           <div style={{ display: page === 'plex' ? undefined : 'none' }} className={`anim-fade ${page === 'plex' ? '' : 'hidden'}`}>
             <Plex />
@@ -129,7 +111,6 @@ export default function App() {
 
       <ActivityDock jobs={jobs} progress={progress} logs={logs} errors={errors} onDismissError={dismissError} onClearErrors={clearErrors} />
 
-      {/* Context menu */}
       {ctx && (
         <div style={{ top: ctx.y, left: ctx.x }} className="fixed z-50 w-52 overflow-hidden rounded-lg border bg-popover p-1 shadow-xl">
           <button onClick={() => { setCtx(null); nav('errors'); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
@@ -138,11 +119,11 @@ export default function App() {
           <button onClick={() => { setCtx(null); nav('logs'); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
             <ScrollText className="size-4" /> Logs
           </button>
-          <button onClick={() => { setCtx(null); nav('genres'); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
-            <Music2 className="size-4" /> Genres
-          </button>
           <button onClick={() => { setCtx(null); nav('tools'); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
-            <Wrench className="size-4" /> Tools
+            <Music2 className="size-4" /> Tools
+          </button>
+          <button onClick={() => { setCtx(null); nav('settings'); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
+            <Wrench className="size-4" /> Settings
           </button>
         </div>
       )}

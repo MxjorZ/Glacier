@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, LibraryBig, Wrench, Trash2, Tag, Radio, ScrollText, Settings, Info, ShieldAlert, Music2,
+  LayoutDashboard, LibraryBig, Wrench, Radio, ScrollText, Settings, Info, ShieldAlert,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button.jsx';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip.jsx';
@@ -8,9 +8,6 @@ const NAV = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { key: 'libraries', label: 'Libraries', Icon: LibraryBig },
   { key: 'tools', label: 'Tools', Icon: Wrench },
-  { key: 'genres', label: 'Genres', Icon: Music2 },
-  { key: 'cleanup', label: 'Cleanup', Icon: Trash2 },
-  { key: 'tags', label: 'Tags', Icon: Tag },
   { key: 'plex', label: 'Plex', Icon: Radio },
   { key: 'logs', label: 'Logs', Icon: ScrollText },
   { key: 'errors', label: 'Error Center', Icon: ShieldAlert },
