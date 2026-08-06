@@ -354,6 +354,10 @@ def op_artist_exclusivity(library_ids=None):
     """Scan for artists present in more than one library (Stage 2)."""
     settings = store.get()
     libs = _enabled_libs()
+    if not libs:
+        # Fall back to all libraries if none are enabled
+        events.log("No enabled libraries found – using all libraries for artist scan", "warning")
+        libs = _libs()
     if library_ids:
         libs = [l for l in libs if l["id"] in library_ids]
     inventories = {}
@@ -361,7 +365,10 @@ def op_artist_exclusivity(library_ids=None):
         if os.path.isdir(lib["path"]):
             inventories[lib["id"]] = scanner.get_inventory(
                 lib, settings["extensions"], settings["excluded_folders"])
+    events.log(f"Artist scan: found {len(inventories)} libraries, total tracks across libraries: {sum(len(t) for t in inventories.values())}", "info")
     exceptions = settings.get("artist_exclusivity_exceptions", [])
+    # Filter out empty strings
+    exceptions = [e for e in exceptions if e and e.strip()]
     groups = exclusivity.scan_artist_violations(inventories, exceptions)
     events.artist_exclusivity_report(len(groups))
     events.log(f"Artist exclusivity scan: {len(groups)} violation(s)", "success")
@@ -374,6 +381,9 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
         raise ValueError("Apply requires explicit confirmation (confirm=true)")
     settings = store.get()
     libs = _enabled_libs()
+    if not libs:
+        events.log("No enabled libraries found – using all libraries for artist resolution", "warning")
+        libs = _libs()
     if library_ids:
         libs = [l for l in libs if l["id"] in library_ids]
     inventories = {}
@@ -382,6 +392,7 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
             inventories[lib["id"]] = scanner.get_inventory(
                 lib, settings["extensions"], settings["excluded_folders"])
     exceptions = settings.get("artist_exclusivity_exceptions", [])
+    exceptions = [e for e in exceptions if e and e.strip()]
     groups = exclusivity.scan_artist_violations(inventories, exceptions)
     plans = exclusivity.resolve_artist_groups(groups, policy, preferred_library_id)
     plans = [p for p in plans if p["remove"]]
@@ -392,15 +403,18 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
                    f"{total} files to move", "info")
         return {"ok": True, "dry_run": True, "count": len(plans), "plans": plans}
 
-    # For artist exclusivity, we always move to the preferred library if policy is keep_preferred_library
+    # Determine move_dir
+    move_dir = None
     if policy == "keep_preferred_library" and preferred_library_id:
         tgt = store.get_library(preferred_library_id)
         if tgt:
             move_dir = tgt["path"]
         else:
-            move_dir = None
+            events.log(f"Preferred library {preferred_library_id} not found", "error")
+            return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": len(plans)}
     else:
-        move_dir = None
+        events.log("Policy must be 'keep_preferred_library' for actual moves; no action taken", "warning")
+        return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": len(plans)}
 
     acted = 0
     skipped = 0
@@ -411,10 +425,15 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
             processed += 1
             if processed % 10 == 0:
                 events.progress(processed, total_files, f"Resolving artist {plan.get('display', '')}")
-            ok, _d = exclusivity.execute_removal(
-                tr, "move_to_library", move_dir=move_dir)
-            if ok:
-                acted += 1
+            if move_dir:
+                ok, _d = exclusivity.execute_removal(
+                    tr, "move_to_library", move_dir=move_dir)
+                if ok:
+                    acted += 1
+                    events.log(f"Moved: {tr.get('path')} -> {move_dir}", "verbose")
+                else:
+                    skipped += 1
+                    events.log(f"Skipped: {tr.get('path')} ({_d})", "warning")
             else:
                 skipped += 1
     events.progress(total_files, total_files, "Artist resolution complete")
@@ -451,11 +470,10 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
         events.log(f"Exclusivity dry-run: {len(plans)} groups, {total} files to act on", "info")
         return {"ok": True, "dry_run": True, "count": len(plans), "plans": plans}
 
-    # Determine actual move target and effective policy
+    # Determine effective policy and move_dir
     effective_policy = policy
     effective_target_id = move_target_library_id
 
-    # If policy is keep_preferred_library, treat as move_to_library with preferred as target
     if policy == "keep_preferred_library":
         if preferred_library_id:
             effective_policy = "move_to_library"
@@ -464,7 +482,6 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
             events.log("keep_preferred_library requires a preferred library id", "warning")
             return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": len(plans)}
 
-    # If policy is move_to_library but no target, fallback to preferred
     if effective_policy == "move_to_library" and not effective_target_id:
         if preferred_library_id:
             effective_target_id = preferred_library_id
@@ -478,9 +495,11 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
         tgt = store.get_library(effective_target_id)
         if tgt:
             move_dir = tgt["path"]
+            events.log(f"Moving to target library: {move_dir}", "info")
         else:
-            events.log(f"Target library {effective_target_id} not found", "error")
-            return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": len(plans)}
+            events.log(f"Target library {effective_target_id} not found, using quarantine", "warning")
+            effective_policy = "quarantine"
+            move_dir = quarantine_dir
 
     acted = 0
     skipped = 0
@@ -491,12 +510,14 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
             processed += 1
             if processed % 10 == 0:
                 events.progress(processed, total_files, f"Resolving duplicates ({processed}/{total_files})")
-            ok, _detail = exclusivity.execute_removal(
+            ok, detail = exclusivity.execute_removal(
                 tr, effective_policy, quarantine_dir=quarantine_dir, move_dir=move_dir)
             if ok:
                 acted += 1
+                events.log(f"Moved: {tr.get('path')} -> {move_dir or quarantine_dir}", "verbose")
             else:
                 skipped += 1
+                events.log(f"Skipped: {tr.get('path')} ({detail})", "warning")
     events.progress(total_files, total_files, "Exclusivity resolution complete")
     events.log(
         f"Exclusivity applied: {acted} files processed, {skipped} skipped", "success")
@@ -541,16 +562,15 @@ def op_cleanup_apply(library_id, kind, paths, confirm=False):
     removed = 0
     errors = []
     if kind in ("empty", "dup_fold"):
-        # emit progress as we remove
         total = len(paths)
         for i, p in enumerate(paths):
-            removed, err = cleaner.apply_remove_dirs([p])
+            r, err = cleaner.apply_remove_dirs([p])
+            removed += r
             if err:
                 errors.extend(err)
-            removed += removed
             if i % 10 == 0:
                 events.progress(i+1, total, f"Removing {kind}")
-        events.progress(total, total, f"Cleanup complete")
+        events.progress(total, total, "Cleanup complete")
     events.log(f"Cleanup applied ({kind}): {removed} removed", "success")
     return {"ok": True, "removed": removed, "errors": errors}
 
@@ -561,6 +581,7 @@ def op_covers(library_id, force=False):
         raise ValueError("Unknown library")
     settings = store.get()
     tracks = scanner.get_inventory(lib, settings["extensions"], settings["excluded_folders"])
+    events.log(f"Starting cover {'rebuild' if force else 'extraction'} for {lib['name']}", "info")
     created, errors = exporter.extract_covers(tracks, force=force)
     action = "Rebuilt" if force else "Extracted"
     events.log(f"{action} covers: {created} in '{lib['name']}'", "success")
@@ -573,6 +594,7 @@ def op_playlists(library_id):
         raise ValueError("Unknown library")
     settings = store.get()
     tracks = scanner.get_inventory(lib, settings["extensions"], settings["excluded_folders"])
+    events.log(f"Generating playlists for {lib['name']}", "info")
     created, errors = exporter.generate_playlists(tracks)
     events.log(f"Playlists generated: {created} in '{lib['name']}'", "success")
     return {"ok": True, "created": created, "errors": errors}

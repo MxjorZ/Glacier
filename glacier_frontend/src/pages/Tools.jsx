@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   RefreshCw, FolderTree, Copy, ShieldAlert, ImageDown, ListMusic, FileText, Play,
-  FolderPlus, // <-- ADDED for import
+  FolderPlus, UserCheck, MoveRight,
 } from 'lucide-react';
 import { api, fmtBytes } from '../api.js';
 import { useJob } from '../useJob.js';
@@ -33,6 +33,16 @@ const POLICY_DESCRIPTIONS = {
   quarantine: "Moves EVERY duplicate file out of your libraries into a quarantine folder (~/.glacier_quarantine). Use this to completely remove duplicate copies from all libraries.",
 };
 
+// Artist exclusivity policies with descriptions
+const ARTIST_POLICIES = [
+  { value: "report_only", label: "Report only" },
+  { value: "keep_preferred_library", label: "Keep preferred library" },
+];
+const ARTIST_POLICY_DESCRIPTIONS = {
+  report_only: "Scans for artists that appear in more than one library, but makes zero changes. Just shows you the list.",
+  keep_preferred_library: "Keeps all tracks of the artist in your Preferred Library. Moves every track from other libraries INTO that Preferred Library. Best for consolidating an artist into one library.",
+};
+
 export default function Tools() {
   const [libs, setLibs] = useState([]);
   const [libId, setLibId] = useState('');
@@ -50,7 +60,7 @@ export default function Tools() {
   // duplicates
   const [dupGroups, setDupGroups] = useState(null);
 
-  // exclusivity
+  // library exclusivity
   const [violations, setViolations] = useState([]);
   const [policy, setPolicy] = useState('report_only');
   const [prefId, setPrefId] = useState('');
@@ -58,12 +68,19 @@ export default function Tools() {
   const [exclPlans, setExclPlans] = useState([]);
   const [exclApply, setExclApply] = useState(false);
 
+  // artist exclusivity (Stage 2)
+  const [artistPolicy, setArtistPolicy] = useState("report_only");
+  const [artistPref, setArtistPref] = useState("");
+  const [artistGroups, setArtistGroups] = useState([]);
+  const [artistPlans, setArtistPlans] = useState([]);
+  const [artistApply, setArtistApply] = useState(false);
+
   // covers / playlists / report
   const [coverRes, setCoverRes] = useState(null);
   const [playlistRes, setPlaylistRes] = useState(null);
   const [report, setReport] = useState(null);
 
-  // -------- NEW: import folder state --------
+  // Import folder
   const [importSource, setImportSource] = useState('');
   const [importDestLib, setImportDestLib] = useState('');
   const [importPreserve, setImportPreserve] = useState(true);
@@ -83,13 +100,18 @@ export default function Tools() {
       toast.error(res?.error || 'Import failed');
     }
   };
-  // -------- END NEW --------
 
   useEffect(() => {
     api.settings().then((s) => {
       const l = s.libraries || [];
       setLibs(l);
-      if (l.length) { setLibId(l[0].id); setPrefId(l[0].id); setTargetId(l[0].id); setImportDestLib(l[0].id); }
+      if (l.length) { 
+        setLibId(l[0].id); 
+        setPrefId(l[0].id); 
+        setTargetId(l[0].id); 
+        setImportDestLib(l[0].id);
+        setArtistPref(l[0].id);
+      }
       setFolderPattern(s.folder_pattern || '');
       setNamingPattern(s.naming_pattern || '');
     }).catch(() => {});
@@ -136,7 +158,7 @@ export default function Tools() {
     else toast.error(res.error || 'Scan failed');
   };
 
-  // ---- Exclusivity ----
+  // ---- Library Exclusivity ----
   const scanExcl = async () => {
     const res = await run('exclusivity', {});
     if (res?.ok) { setViolations(res.violations || []); toast.success(`${res.count} violations`); }
@@ -152,6 +174,26 @@ export default function Tools() {
     } else if (res?.ok) {
       toast.success(`${res.acted} files processed, ${res.skipped} skipped`); setExclApply(false); setExclPlans([]);
     } else toast.error(res.error || 'Apply failed');
+  };
+
+  // ---- Artist Exclusivity ----
+  const scanArtists = async () => {
+    const res = await run('artist-exclusivity', {});
+    if (res?.ok) { setArtistGroups(res.groups || []); toast.success(`${res.count} artist violation(s)`); }
+    else toast.error(res.error || "Scan failed");
+  };
+  const resolveArtists = async (dry) => {
+    const res = await run('resolve-artist-exclusivity', {
+      policy: artistPolicy, preferred_library_id: artistPref,
+      dry_run: dry, confirm: !dry,
+    });
+    if (dry) {
+      if (res?.ok) { setArtistPlans(res.plans || []); toast.success(`${res.count} artist(s) would be moved`); }
+      else toast.error(res.error || "Dry-run failed");
+    } else if (res?.ok) {
+      toast.success(`${res.acted} moved, ${res.skipped} skipped`);
+      setArtistApply(false); setArtistPlans([]);
+    } else toast.error(res.error || "Apply failed");
   };
 
   // ---- Covers / playlists / report ----
@@ -269,8 +311,7 @@ export default function Tools() {
           </CardContent>
         </Card>
 
-
-        {/* Exclusivity */}
+        {/* Library Exclusivity */}
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2"><ShieldAlert className="size-4 text-primary" /> Library exclusivity</CardTitle>
@@ -341,7 +382,82 @@ export default function Tools() {
           </CardContent>
         </Card>
 
-        {/* -------- NEW: Import folder card -------- */}
+        {/* Artist Exclusivity */}
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2"><UserCheck className="size-4 text-primary" /> Artist exclusivity</CardTitle>
+            <CardDescription>Artists that appear in more than one library (one library per artist)</CardDescription>
+            <CardAction>
+              <Button variant="outline" size="sm" disabled={running} onClick={scanArtists}>
+                <RefreshCw className="size-3.5" /> Scan
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">Resolution policy</label>
+                <Select value={artistPolicy} onValueChange={setArtistPolicy}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {ARTIST_POLICIES.map((p) => (
+                      <SelectItem key={p.value} value={p.value} title={ARTIST_POLICY_DESCRIPTIONS[p.value]}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {ARTIST_POLICY_DESCRIPTIONS[artistPolicy] && (
+                  <div className="mt-1 rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    <strong>What this does:</strong> {ARTIST_POLICY_DESCRIPTIONS[artistPolicy]}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">Preferred library</label>
+                <Select value={artistPref} onValueChange={setArtistPref}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {artistGroups.length > 0 ? (
+              <div className="max-h-40 space-y-1 overflow-auto rounded-lg border bg-muted/30 p-2 text-xs">
+                {artistGroups.map((g) => (
+                  <div key={g.artist} className="border-b border-border/40 py-0.5">
+                    <span className="font-medium">{g.display}</span>
+                    <span className="text-muted-foreground"> - {g.libraries.map((l) => libName(l.library_id) + " (" + l.count + ")").join(", ")}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                No artist violations found. Make sure:
+                <ul className="mt-1 list-inside list-disc">
+                  <li>You have at least two libraries with music.</li>
+                  <li>Your libraries are <strong>enabled</strong> (check the Libraries page).</li>
+                  <li>The artists are tagged consistently (case and punctuation are ignored).</li>
+                  <li>You have scanned your libraries (Dashboard → Scan).</li>
+                </ul>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={running} onClick={() => resolveArtists(true)}>
+                <RefreshCw className="size-3.5" /> Resolve dry run
+              </Button>
+              <Button size="sm" disabled={running} onClick={() => setArtistApply(true)}>
+                <Play className="size-3.5" /> Apply
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Import folder */}
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2"><FolderPlus className="size-4 text-primary" /> Import folder</CardTitle>
@@ -383,7 +499,6 @@ export default function Tools() {
             </div>
           </CardContent>
         </Card>
-        {/* -------- END NEW -------- */}
 
         {/* Export assets */}
         <Card>
@@ -452,6 +567,14 @@ export default function Tools() {
         message="Glacier will act on violations according to the selected policy. Consider a dry run first."
         onCancel={() => setExclApply(false)}
         onConfirm={() => resolveExcl(false)}
+        confirmLabel="Apply"
+      />
+      <Confirm
+        open={artistApply}
+        title="Apply artist exclusivity resolution?"
+        message="Glacier will move the artist's files out of all non-preferred libraries, leaving the artist in one library only."
+        onCancel={() => setArtistApply(false)}
+        onConfirm={() => resolveArtists(false)}
         confirmLabel="Apply"
       />
     </div>

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input.jsx';
 import { cn } from '@/lib/utils.js';
 
 function fmtDur(sec) {
-  if (!Number.isFinite(sec) || sec < 0) return 'ג€“';
+  if (!Number.isFinite(sec) || sec < 0) return '–';
   sec = Math.round(sec);
   const s = sec % 60, m = Math.floor(sec / 60) % 60, h = Math.floor(sec / 3600);
   if (h > 0) return `${h}h ${m}m`;
@@ -254,7 +254,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
                     <span className="flex items-center gap-1.5 font-mono text-muted-foreground">
                       {j.eta != null
                         ? <span className="text-primary">~{fmtDur(j.eta)} left</span>
-                        : j.p ? <span className="text-muted-foreground">waiting…</span> : <span className="text-muted-foreground">processing…</span>}
+                        : j.p ? <span className="text-muted-foreground">waiting…</span> : <span className="text-muted-foreground">–</span>}
                       <span>{fmtDur(j.elapsed)}</span>
                     </span>
                   </div>
@@ -308,4 +308,3 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
     </div>
   );
 }
-
