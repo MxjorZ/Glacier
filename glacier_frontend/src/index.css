@@ -3,55 +3,60 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ===== SPOTIFLAC-NEXT STYLE THEME ===== */
+/* ===== THEME VARIABLES (with oklch colors) ===== */
 :root {
   --radius: 0.75rem;
-  --background: #0f0f0f;
-  --foreground: #e8e8e8;
-  --card: #1a1a1a;
-  --card-foreground: #e8e8e8;
-  --popover: #1a1a1a;
-  --popover-foreground: #e8e8e8;
-  --primary: #6c5ce7;
-  --primary-foreground: #ffffff;
-  --secondary: #2a2a2a;
-  --secondary-foreground: #e8e8e8;
-  --muted: #2a2a2a;
-  --muted-foreground: #9ca3af;
-  --accent: #2a2a2a;
-  --accent-foreground: #e8e8e8;
-  --destructive: #ef4444;
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.06);
-  --ring: #6c5ce7;
-  --ok: #4ade80;
-  --warn: #facc15;
-  --err: #ef4444;
-  --info: #60a5fa;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.71 0.13 215);
+  --primary-foreground: oklch(0.3 0.05 230);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.371 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --ok: oklch(0.72 0.2 162);
+  --warn: oklch(0.85 0.19 86);
+  --err: oklch(0.704 0.191 22.216);
+  --info: oklch(0.68 0.15 237);
 }
-.dark {
-  --background: #0f0f0f;
-  --foreground: #e8e8e8;
-  --card: #1a1a1a;
-  --card-foreground: #e8e8e8;
-  --popover: #1a1a1a;
-  --popover-foreground: #e8e8e8;
-  --primary: #6c5ce7;
-  --primary-foreground: #ffffff;
-  --secondary: #2a2a2a;
-  --secondary-foreground: #e8e8e8;
-  --muted: #2a2a2a;
+
+/* ---- Accent presets (dark) ---- */
+.dark[data-accent="cyan"]   { --primary: oklch(0.71 0.13 215); --primary-foreground: oklch(0.3 0.05 230); }
+.dark[data-accent="sky"]    { --primary: oklch(0.68 0.15 237); --primary-foreground: oklch(0.29 0.06 243); }
+.dark[data-accent="teal"]   { --primary: oklch(0.7 0.12 183);  --primary-foreground: oklch(0.28 0.04 193); }
+.dark[data-accent="blue"]   { --primary: oklch(0.42 0.18 266); --primary-foreground: oklch(0.97 0.014 254.604); }
+.dark[data-accent="purple"] { --primary: oklch(0.606 0.25 292.717); --primary-foreground: oklch(0.969 0.016 293.756); }
+.dark[data-accent="green"]  { --primary: oklch(0.7 0.2 155);   --primary-foreground: oklch(0.25 0.05 160); }
+.dark[data-accent="orange"] { --primary: oklch(0.78 0.16 65);  --primary-foreground: oklch(0.3 0.07 45); }
+.dark[data-accent="red"]    { --primary: oklch(0.7 0.22 25);   --primary-foreground: oklch(0.97 0.015 12); }
+.dark[data-accent="yellow"] { --primary: oklch(0.795 0.184 86.047); --primary-foreground: oklch(0.421 0.095 57.708); }
+
+/* ---- AMOLED ---- */
+html.amoled {
+  --background: #000000;
+  --foreground: #e5e5e5;
+  --card: #0a0a0a;
+  --card-foreground: #e5e5e5;
+  --popover: #0a0a0a;
+  --popover-foreground: #e5e5e5;
+  --secondary: #111111;
+  --secondary-foreground: #e5e5e5;
+  --muted: #0f0f0f;
   --muted-foreground: #9ca3af;
-  --accent: #2a2a2a;
-  --accent-foreground: #e8e8e8;
-  --destructive: #ef4444;
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.06);
-  --ring: #6c5ce7;
-  --ok: #4ade80;
-  --warn: #facc15;
-  --err: #ef4444;
-  --info: #60a5fa;
+  --accent: #161616;
+  --accent-foreground: #e5e5e5;
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
 }
 
 /* ===== BASE ===== */
@@ -78,11 +83,28 @@
 }
 
 /* ===== SCROLLBAR ===== */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--secondary); border-radius: 4px; }
 ::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--primary); filter: brightness(1.2); }
 * { scrollbar-width: thin; scrollbar-color: var(--primary) var(--secondary); }
+
+/* ===== ANIMATIONS ===== */
+:root {
+  --anim-duration: 200ms;
+  --anim-easing: ease-out;
+}
+.anim-fade {
+  animation: anim-fade-in var(--anim-duration) var(--anim-easing);
+}
+@keyframes anim-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes icon-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
 
 /* ===== SIDEBAR ===== */
 .sidebar-container {
@@ -117,6 +139,7 @@
 .sidebar-container .logo:hover {
   transform: scale(1.05);
 }
+
 .sidebar-icon {
   transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   border-radius: 0.75rem;
@@ -124,9 +147,10 @@
   margin-bottom: 0.25rem;
   color: var(--muted-foreground);
   background: transparent;
+  cursor: pointer;
 }
 .sidebar-icon:hover {
-  color: var(--foreground);
+  color: #ffffff;
   background: var(--secondary);
   transform: scale(1.05);
 }
@@ -136,13 +160,16 @@
 }
 .sidebar-icon.active:hover {
   background: rgba(108, 92, 231, 0.25);
+  color: #ffffff;
 }
+
 .sidebar-label {
   transition: color 0.2s ease;
   color: var(--muted-foreground);
 }
 .sidebar-label:hover {
-  color: var(--foreground);
+  color: #ffffff;
+  font-weight: 600;
 }
 
 /* ===== MAIN CONTENT ===== */
@@ -251,11 +278,12 @@
 .tool-card .tool-label {
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--foreground);
-  transition: color 0.2s ease;
+  color: var(--muted-foreground);
+  transition: color 0.2s ease, font-weight 0.2s ease;
 }
 .tool-card:hover .tool-label {
-  color: var(--primary);
+  color: #ffffff;
+  font-weight: 600;
 }
 
 /* ===== BUTTONS ===== */
@@ -307,11 +335,14 @@
   transition: all 0.2s ease;
   color: var(--muted-foreground);
   border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: transparent;
 }
 .context-menu-item:hover {
   background: var(--secondary);
-  color: var(--foreground);
+  color: #ffffff;
   transform: translateX(4px);
+  font-weight: 600;
 }
 
 /* ===== BACK BUTTON ===== */
@@ -320,8 +351,9 @@
   color: var(--muted-foreground);
 }
 .back-button:hover {
-  color: var(--primary);
+  color: #ffffff;
   transform: translateX(-4px);
+  font-weight: 600;
 }
 
 /* ===== FORMS ===== */
@@ -368,15 +400,31 @@ label {
   .table-container table { min-width: 600px; }
 }
 
-/* ===== ANIMATIONS ===== */
-@keyframes icon-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.1); }
+/* ===== SETTINGS SIDEBAR ===== */
+.settings-nav-item {
+  transition: all 0.2s ease;
+  color: var(--muted-foreground);
+  border-radius: 0.5rem;
 }
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+.settings-nav-item:hover {
+  background: var(--secondary);
+  color: #ffffff;
+  font-weight: 500;
 }
-.anim-fade {
-  animation: fade-in 250ms ease-out;
+.settings-nav-item.active {
+  background: rgba(108, 92, 231, 0.15);
+  color: var(--primary);
+}
+.settings-nav-item.active:hover {
+  background: rgba(108, 92, 231, 0.25);
+  color: #ffffff;
+}
+
+/* ===== DESTRUCTIVE (e.g., trash icon) ===== */
+.text-destructive {
+  color: var(--err) !important;
+}
+.text-destructive:hover {
+  color: #ffffff !important;
+  filter: drop-shadow(0 0 8px var(--err));
 }
