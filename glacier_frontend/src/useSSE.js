@@ -56,14 +56,43 @@ export function useSSE(onEvent) {
       });
       delete lastProg.current[data.job_id];
     }
-    if (data.type === 'log') {
-      addLog(data);
+
+    // ---- Capture all loggable events ----
+    const loggableTypes = ['log', 'success', 'error', 'warning', 'info', 'verbose', 'connected', 'disconnected', 'progress'];
+    if (data.type && loggableTypes.includes(data.type)) {
+      // If it's a log, it already has message/level; use as is.
+      // For success/error/warning, we may need to build a message.
+      const entry = { ...data };
+      // Ensure it has a level for categorization
+      if (!entry.level) {
+        // Map type to level: success->success, error->error, warning->warning, etc.
+        const levelMap = {
+          success: 'success',
+          error: 'error',
+          warning: 'warning',
+          info: 'info',
+          verbose: 'verbose',
+          connected: 'connected',
+          disconnected: 'disconnected',
+        };
+        entry.level = levelMap[data.type] || 'info';
+      }
+      if (!entry.message) {
+        // If no message, use a default
+        entry.message = data.label || data.msg || data.text || `Event: ${data.type}`;
+      }
+      // Ensure we have a timestamp
+      if (!entry.ts) entry.ts = Date.now() / 1000;
+      addLog(entry);
     }
+
+    // Also capture dedicated error events (they come as type='error')
     if (data.type === 'error') {
       const err = { id: Math.random().toString(36).slice(2), level: 'error', ...data };
       setErrors((prev) => [...prev.slice(-99), err]);
-      addLog(err);
+      // Already added to logs via the general capture above, but we also update errors.
     }
+
     if (cb.current) cb.current(data);
   };
 
@@ -80,8 +109,6 @@ export function useSSE(onEvent) {
       apply(d);
     };
     es.onopen = () => {
-      // EventSource fired a reconnection: log recovery and re-seed any jobs that
-      // may have started while the stream was down, so they appear in the dock.
       addLog({ type: 'connected', level: 'connected', message: 'Live stream reconnected', ts: Date.now() / 1000 });
       api.currentJob().then((r) => {
         const arr = r?.jobs || [];
@@ -89,8 +116,6 @@ export function useSSE(onEvent) {
       }).catch(() => {});
     };
     es.onerror = () => {
-      // EventSource auto-reconnects; record a disconnected log line so it shows
-      // in the console's "Disconnected" category.
       addLog({ type: 'disconnected', level: 'disconnected', message: 'Live stream disconnected — reconnecting…', ts: Date.now() / 1000 });
     };
     addLog({ type: 'connected', level: 'connected', message: 'Connected to Glacier live stream', ts: Date.now() / 1000 });
@@ -104,8 +129,6 @@ export function useSSE(onEvent) {
     return () => es.close();
   }, []);
 
-  // Error collector: dismiss one error (fix it on the fly, no log digging) or
-  // clear the whole list.
   const dismissError = (id) => setErrors((prev) => prev.filter((e) => e.id !== id));
   const clearErrors = () => setErrors([]);
 

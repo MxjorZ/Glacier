@@ -156,11 +156,10 @@ html.amoled {
 }
 .sidebar-icon.active {
   color: var(--primary);
-  background: rgba(108, 92, 231, 0.15);
+  background: var(--muted-foreground);
 }
 .sidebar-icon.active:hover {
-  background: rgba(108, 92, 231, 0.25);
-  color: #ffffff;
+  background: var(--secondary); 
 }
 
 .sidebar-label {
@@ -416,8 +415,7 @@ label {
   color: var(--primary);
 }
 .settings-nav-item.active:hover {
-  background: rgba(108, 92, 231, 0.25);
-  color: #ffffff;
+background: var(--secondary);  color: #ffffff;
 }
 
 /* ===== DESTRUCTIVE (e.g., trash icon) ===== */
@@ -427,4 +425,19 @@ label {
 .text-destructive:hover {
   color: #ffffff !important;
   filter: drop-shadow(0 0 8px var(--err));
+}
+
+/* Switch ON state */
+[data-state="checked"] {
+  background-color: var(--ok) !important; /* green */
+}
+/* Switch OFF state */
+[data-state="unchecked"] {
+  background-color: var(--err) !important; /* red */
+}
+
+.context-menu {
+  background: rgba(30, 30, 30, 0.85) !important;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255,255,255,0.08);
 }

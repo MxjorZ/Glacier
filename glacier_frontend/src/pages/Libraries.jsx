@@ -280,7 +280,7 @@ export default function Libraries() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Size</span>
-                    <span className="font-mono">{dir ? fmtBytes(dir.size ?? 0) : "—"}</span>
+                    <span className="font-mono">{dir && dir.size ? fmtBytes(dir.size) : "—"}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Last scan</span>
