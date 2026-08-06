@@ -30,12 +30,11 @@ export default function AudioQualityAnalyzer() {
   // Load tracks when library changes
   useEffect(() => {
     if (!libId) return;
-    api.run('quick-scan', { library_ids: [libId] }).then(() => {
-      // Get tracks from inventory via tracks page (use /api/tracks with page=1&per_page=1000)
-      api.tracks({ library_id: libId, page: 1, per_page: 1000 }).then((res) => {
+    api.tracks({ library_id: libId, page: 1, per_page: 1000 })
+      .then((res) => {
         setTracks(res.items || []);
-      }).catch(() => {});
-    }).catch(() => {});
+      })
+      .catch(() => {});
   }, [libId]);
 
   const loadAudioInfo = async (path) => {
@@ -159,7 +158,9 @@ export default function AudioQualityAnalyzer() {
               <InfoItem label="Sample Rate" value={formatSampleRate(audioInfo.sample_rate)} />
               <InfoItem label="Channels" value={audioInfo.channels ? (audioInfo.channels === 1 ? 'Mono' : 'Stereo') : '–'} />
               <InfoItem label="Bits per sample" value={audioInfo.bits_per_sample ? `${audioInfo.bits_per_sample} bit` : '–'} />
-              <InfoItem label="File size" value={formatSize(audioInfo.path ? require('fs')?.statSync?.(audioInfo.path)?.size : 0)} />
+              <InfoItem label="File size" value={
+                audioInfo.path ? formatSize(require('fs')?.statSync?.(audioInfo.path)?.size) : '–'
+              } />
             </div>
           </CardContent>
         </Card>
