@@ -305,34 +305,39 @@ def op_tracks_page(library_id, page, per_page, sort="title", order="asc", query=
 # Organize – uses the simple mover engine
 # ======================================================================
 
-def op_organize(library_id, dry_run, confirm=False):
+def op_organize(library_id, dry_run, confirm=False, plan=None):
     lib = store.get_library(library_id)
     if not lib:
         raise ValueError("Unknown library")
     if not dry_run and not confirm:
         raise ValueError("Apply requires explicit confirmation (confirm=true)")
     settings = store.get()
+    
+    if plan is not None:
+        # Execute pre‑computed plan (from dry‑run)
+        events.log(f"Executing pre‑computed plan for '{lib['name']}'", "info")
+        moved, errors = mover.execute_plan(plan, dry_run=False, backup=settings.get("backup_before_move", False))
+        events.log(f"Organized {moved} files in '{lib['name']}'", "success")
+        return {"ok": True, "dry_run": False, "moved": moved, "errors": errors, "count": len(plan)}
+    
+    # Otherwise compute from scratch
     tracks = scanner.get_inventory(lib, settings["extensions"], settings["excluded_folders"])
     file_paths = [t['path'] for t in tracks if not t.get('error')]
-
     plan = mover.plan_files(
         file_paths,
         settings["folder_pattern"],
         settings["naming_pattern"],
-        lib["path"]
+        lib["path"],
+        skip_already_organized=True,
+        emit_progress=True
     )
     if dry_run:
-        events.log(f"Organize dry-run: {len(plan)} files would move", "info")
+        events.log(f"Organize dry‑run: {len(plan)} files would move", "info")
         return {"ok": True, "dry_run": True, "count": len(plan), "plan": plan}
-
-    moved, errors = mover.execute_plan(
-        plan,
-        dry_run=False,
-        backup=settings.get("backup_before_move", False)
-    )
+    
+    moved, errors = mover.execute_plan(plan, dry_run=False, backup=settings.get("backup_before_move", False))
     events.log(f"Organized {moved} files in '{lib['name']}'", "success")
     return {"ok": True, "dry_run": False, "moved": moved, "errors": errors, "count": len(plan)}
-
 
 # ======================================================================
 # Duplicates – unchanged
@@ -1099,7 +1104,88 @@ def register_routes(app):
     def list_operations():
         limit = request.args.get("limit", default=100, type=int)
         return jsonify({"ok": True, "operations": operations_store.store.list(limit)})
+    
+    # --- Audio Quality Anaalyzer (Stage 5 #8) ----------------------------
+    @app.post("/api/audio-info")
+    def audio_info():
+        """Get detailed audio information for a file."""
+        body = _json_body()
+        path = body.get("path")
+        if not path:
+            return jsonify({"ok": False, "error": "Path is required"}), 400
+        if not os.path.exists(path):
+            return jsonify({"ok": False, "error": "File not found"}), 404
 
+    try:
+        from mutagen import File
+        from mutagen.flac import FLAC
+        from mutagen.mp3 import MP3
+        from mutagen.oggvorbis import OggVorbis
+        from mutagen.m4a import M4A
+        from mutagen.wave import WAVE
+
+        audio = File(path)
+        if audio is None:
+            return jsonify({"ok": False, "error": "Unsupported or corrupt file"}), 400
+
+        info = {
+            "path": path,
+            "format": None,
+            "bitrate": None,
+            "sample_rate": None,
+            "channels": None,
+            "duration": None,
+            "codec": None,
+            "bits_per_sample": None,
+            "compression_ratio": None,
+        }
+
+        # Get basic info from audio.info
+        if hasattr(audio, 'info'):
+            info["duration"] = float(audio.info.length) if hasattr(audio.info, 'length') else 0
+            info["bitrate"] = int(audio.info.bitrate) if hasattr(audio.info, 'bitrate') else 0
+            info["sample_rate"] = int(audio.info.sample_rate) if hasattr(audio.info, 'sample_rate') else 0
+            info["channels"] = int(audio.info.channels) if hasattr(audio.info, 'channels') else 0
+
+        # Format-specific details
+        if isinstance(audio, FLAC):
+            info["format"] = "FLAC"
+            info["bits_per_sample"] = int(audio.info.bits_per_sample) if hasattr(audio.info, 'bits_per_sample') else 16
+            info["codec"] = "FLAC"
+            # compression ratio: size / (duration * bitrate)
+            if info["duration"] and info["bitrate"]:
+                info["compression_ratio"] = round(os.path.getsize(path) / (info["duration"] * info["bitrate"] / 8), 2)
+        elif isinstance(audio, MP3):
+            info["format"] = "MP3"
+            info["codec"] = "MPEG-1 Audio Layer 3"
+            # MP3 may have bitrate mode (CBR/VBR)
+            if hasattr(audio.info, 'bitrate_mode'):
+                info["bitrate_mode"] = audio.info.bitrate_mode
+        elif isinstance(audio, OggVorbis):
+            info["format"] = "OGG"
+            info["codec"] = "Vorbis"
+        elif isinstance(audio, M4A):
+            info["format"] = "M4A"
+            info["codec"] = "AAC / ALAC"
+        elif isinstance(audio, WAVE):
+            info["format"] = "WAV"
+            info["codec"] = "PCM"
+        else:
+            info["format"] = "Unknown"
+
+        # Try to get tags
+        tags = {}
+        if hasattr(audio, 'get'):
+            for k in ('artist', 'album', 'title', 'genre', 'tracknumber', 'date'):
+                val = audio.get(k, [''])[0] if audio.get(k) else ''
+                if val:
+                    tags[k] = str(val)
+        info["tags"] = tags
+
+        return jsonify({"ok": True, "info": info})
+
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
     # --- Settings -----------------------------------------------------
     @app.get("/api/settings")
@@ -1218,9 +1304,10 @@ def register_routes(app):
         library_id = body.get("library_id")
         dry_run = bool(body.get("dry_run", True))
         confirm = bool(body.get("confirm", False))
+        plan = body.get("plan")  # optional pre‑computed plan
         if not library_id:
             return jsonify({"ok": False, "error": "library_id is required"}), 400
-        return _start("organize", op_organize, library_id, dry_run, confirm)
+        return _start("organize", op_organize, library_id, dry_run, confirm, plan=plan)
 
     # --- Live path/filename preview (Stage 2) -------------------------
     @app.post("/api/preview-path")

@@ -152,7 +152,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
       const q = query.toLowerCase();
       list = list.filter((l) => `${l.message || ''} ${l.label || ''}`.toLowerCase().includes(q));
     }
-    return list.slice(-400);
+    return list.slice(-1000); // <-- changed from 400 to 1000
   }, [logs, filter, query]);
 
   useEffect(() => {

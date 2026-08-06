@@ -84,6 +84,7 @@ DEFAULT_SETTINGS = {
     "artist_exclusivity_exceptions": [],
     "preferred_library_id": None,
     "backup_before_move": False,
+    "startup_scan_enabled": False,
     "plex": {
         "url": "",
         "token": "",

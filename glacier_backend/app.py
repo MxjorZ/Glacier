@@ -65,6 +65,8 @@ def create_app(host=None, port=None):
     # fast change-detection pass over every enabled library so Glacier reflects
     # files added/removed/renamed since the last run without forcing a full scan.
     def _startup_scan():
+        if not store.get().get("startup_scan_enabled", False):
+            return
         time.sleep(20)
         try:
             supervisor.start("Startup scan", op_startup_scan)

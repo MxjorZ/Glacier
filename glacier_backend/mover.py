@@ -78,31 +78,29 @@ def render_pattern(pattern: str, tags: Dict[str, str]) -> str:
 # --- Move planning -------------------------------------------------------
 
 def plan_files(file_paths: List[str], folder_pattern: str, filename_pattern: str,
-               library_root: str) -> List[Dict]:
-    """Build a move plan for a list of files.
-
-    Returns list of dicts with source, destination, and metadata.
-    """
+               library_root: str, skip_already_organized: bool = True,
+               emit_progress: bool = False) -> List[Dict]:
+    """Build a move plan for a list of files."""
     plan = []
-    for src in file_paths:
+    total = len(file_paths)
+    for idx, src in enumerate(file_paths):
+        if emit_progress and idx % 50 == 0:
+            events.progress(idx, total, "Planning organize")
         if not os.path.isfile(src):
             continue
         tags = read_tags(src)
-        # Build destination folder
         folder = render_pattern(folder_pattern, tags)
-        # Build filename
         base = render_pattern(filename_pattern, tags)
         ext = os.path.splitext(src)[1]
-        # Add track number if missing from pattern but available
         if '{track}' not in filename_pattern and tags.get('tracknumber'):
             base = f"{base} - {tags['tracknumber']}"
         new_name = base + ext
         dest = os.path.join(library_root, folder, new_name)
-        plan.append({
-            'source': src,
-            'destination': dest,
-            'tags': tags,
-        })
+        if skip_already_organized and os.path.abspath(src) == os.path.abspath(dest):
+            continue
+        plan.append({'source': src, 'destination': dest, 'tags': tags})
+    if emit_progress:
+        events.progress(total, total, "Planning complete")
     return plan
 
 

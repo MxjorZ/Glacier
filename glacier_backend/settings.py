@@ -16,6 +16,7 @@ from . import config
 
 def _normalize(raw):
     """Merge raw loaded settings over the defaults recursively."""
+    merged.setdefault("startup_scan_enabled", False)
     merged = copy.deepcopy(config.DEFAULT_SETTINGS)
     if not isinstance(raw, dict):
         return merged

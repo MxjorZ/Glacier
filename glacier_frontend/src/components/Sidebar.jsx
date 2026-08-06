@@ -17,7 +17,7 @@ const NAV = [
 
 export default function Sidebar({ page, onNavigate }) {
   return (
-    <div className="fixed left-0 top-0 z-30 flex h-full w-14 flex-col items-center border-r bg-card py-3">
+    <div className="sidebar-container">
       <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
         <span className="text-lg font-bold">G</span>
       </div>
@@ -30,13 +30,13 @@ export default function Sidebar({ page, onNavigate }) {
                 <Button
                   variant={active ? 'secondary' : 'ghost'}
                   size="icon"
-                  className={`h-10 w-10 ${active ? 'bg-primary/10 text-primary hover:bg-primary/20' : 'hover:bg-primary/10 hover:text-primary'}`}
+                  className={`sidebar-icon h-10 w-10 ${active ? 'active bg-primary/10 text-primary hover:bg-primary/20' : 'hover:bg-primary/10 hover:text-primary'}`}
                   onClick={() => onNavigate(key)}
                 >
                   <Icon size={20} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="right">
+              <TooltipContent side="right" className="sidebar-label">
                 <p>{label}</p>
               </TooltipContent>
             </Tooltip>

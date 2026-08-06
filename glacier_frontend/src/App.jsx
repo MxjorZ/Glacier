@@ -79,37 +79,34 @@ export default function App() {
   return (
     <div className="h-screen w-full overflow-hidden">
       <Sidebar page={page} onNavigate={nav} />
-      <TitleBar sys={sys} jobsCount={Object.keys(jobs).length} errorCount={errors.length} onErrors={() => nav('errors')} onLogs={() => nav('logs')} />
-      <main className="ml-14 mt-10 h-[calc(100vh-40px)] overflow-y-auto px-4 pt-6 pb-16 md:px-8">
-        <div className="mx-auto w-full max-w-6xl">
-          <div style={{ display: page === 'dashboard' ? undefined : 'none' }} className={`anim-fade ${page === 'dashboard' ? '' : 'hidden'}`}>
-            <Dashboard onNavigate={nav} />
-          </div>
-          <div style={{ display: page === 'libraries' ? undefined : 'none' }} className={`anim-fade ${page === 'libraries' ? '' : 'hidden'}`}>
-            <Libraries />
-          </div>
-          <div style={{ display: page === 'tools' ? undefined : 'none' }} className={`anim-fade ${page === 'tools' ? '' : 'hidden'}`}>
-            <Tools />
-          </div>
-          <div style={{ display: page === 'plex' ? undefined : 'none' }} className={`anim-fade ${page === 'plex' ? '' : 'hidden'}`}>
-            <Plex />
-          </div>
-          <div style={{ display: page === 'logs' ? undefined : 'none' }} className={`anim-fade ${page === 'logs' ? '' : 'hidden'}`}>
-            <Logs />
-          </div>
-          <div style={{ display: page === 'errors' ? undefined : 'none' }} className={`anim-fade ${page === 'errors' ? '' : 'hidden'}`}>
-            <Errors liveErrors={errors} />
-          </div>
-          <div style={{ display: page === 'settings' ? undefined : 'none' }} className={`anim-fade ${page === 'settings' ? '' : 'hidden'}`}>
-            <Settings settings={settings} onSettings={setSettings} />
-          </div>
-          <div style={{ display: page === 'about' ? undefined : 'none' }} className={`anim-fade ${page === 'about' ? '' : 'hidden'}`}>
-            <About sys={sys} />
-          </div>
+      <TitleBar
+        sys={sys}
+        jobsCount={Object.keys(jobs).length}
+        errorCount={errors.length}
+        onErrors={() => nav('errors')}
+        onLogs={() => nav('logs')}
+      />
+      <main className="main-content">
+        <div className="mx-auto w-full max-w-7xl">
+          {page === 'dashboard' && <Dashboard onNavigate={nav} />}
+          {page === 'libraries' && <Libraries />}
+          {page === 'tools' && <Tools />}
+          {page === 'plex' && <Plex />}
+          {page === 'logs' && <Logs />}
+          {page === 'errors' && <Errors liveErrors={errors} />}
+          {page === 'settings' && <Settings settings={settings} onSettings={setSettings} />}
+          {page === 'about' && <About sys={sys} />}
         </div>
       </main>
 
-      <ActivityDock jobs={jobs} progress={progress} logs={logs} errors={errors} onDismissError={dismissError} onClearErrors={clearErrors} />
+      <ActivityDock
+        jobs={jobs}
+        progress={progress}
+        logs={logs}
+        errors={errors}
+        onDismissError={dismissError}
+        onClearErrors={clearErrors}
+      />
 
       {ctx && (
         <div style={{ top: ctx.y, left: ctx.x }} className="fixed z-50 w-52 overflow-hidden rounded-lg border bg-popover p-1 shadow-xl">

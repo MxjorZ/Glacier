@@ -156,9 +156,18 @@ export default function Settings({ settings, onSettings }) {
               <span className="text-sm">Backup files before moving</span>
               <Switch checked={!!s.backup_before_move} onCheckedChange={(v) => set('backup_before_move', v)} />
             </div>
+            <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
+              <div>
+                <span className="text-sm">Run quick scan on app startup</span>
+                <p className="text-xs text-muted-foreground">Automatically scans for changes when the app loads</p>
+              </div>
+              <Switch
+                checked={!!s.startup_scan_enabled}
+                onCheckedChange={(v) => set('startup_scan_enabled', v)}
+              />
+            </div>
           </CardContent>
         </Card>
-
 
         {/* Exclusivity */}
         <Card>
