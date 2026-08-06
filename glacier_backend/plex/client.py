@@ -42,10 +42,12 @@ def get_status(url, token):
 
 
 def _music_section(server, section_name):
-    for lib in server.library.sections():
-        if lib.type == "artist" and (
-                not section_name or lib.title.lower() == section_name.lower()):
-            return lib
+    """Find a music section by name (case‑insensitive) or fallback to the first music section."""
+    if section_name:
+        for lib in server.library.sections():
+            if lib.type == "artist" and lib.title.lower() == section_name.lower():
+                return lib
+    # fallback: first music section
     for lib in server.library.sections():
         if lib.type == "artist":
             return lib

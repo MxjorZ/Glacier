@@ -15,6 +15,16 @@ import { PageHeader, Empty } from "../components/PageHeader.jsx";
 import { Modal, Confirm } from "../components/dialog-helpers.jsx";
 import { toast } from "../toast.jsx";
 
+// Artist exclusivity policies with descriptions
+const ARTIST_POLICIES = [
+  { value: "report_only", label: "Report only" },
+  { value: "keep_preferred_library", label: "Keep preferred library" },
+];
+const ARTIST_POLICY_DESCRIPTIONS = {
+  report_only: "Scans for artists that appear in more than one library, but makes zero changes. Just shows you the list.",
+  keep_preferred_library: "Keeps all tracks of the artist in your Preferred Library. Moves every track from other libraries INTO that Preferred Library. Best for consolidating an artist into one library.",
+};
+
 export default function Libraries() {
   // ---- Server connection + load state ----
   const [conn, setConn] = useState("loading"); // 'loading' | 'ok' | 'error'
@@ -28,10 +38,6 @@ export default function Libraries() {
   const [removeId, setRemoveId] = useState(null);
 
   // ---- Artist exclusivity (Stage 2) ----
-  const ARTIST_POLICIES = [
-    { value: "report_only", label: "Report only" },
-    { value: "keep_preferred_library", label: "Keep preferred library" },
-  ];
   const [artistPolicy, setArtistPolicy] = useState("report_only");
   const [artistPref, setArtistPref] = useState("");
   const [artistGroups, setArtistGroups] = useState([]);
@@ -348,9 +354,19 @@ export default function Libraries() {
               <Select value={artistPolicy} onValueChange={setArtistPolicy}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {ARTIST_POLICIES.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                  {ARTIST_POLICIES.map((p) => (
+                    <SelectItem key={p.value} value={p.value} title={ARTIST_POLICY_DESCRIPTIONS[p.value]}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              {/* Description box */}
+              {ARTIST_POLICY_DESCRIPTIONS[artistPolicy] && (
+                <div className="mt-1 rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  <strong>What this does:</strong> {ARTIST_POLICY_DESCRIPTIONS[artistPolicy]}
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">Preferred library</label>

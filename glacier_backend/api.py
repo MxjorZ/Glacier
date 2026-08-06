@@ -10,6 +10,7 @@ files.
 """
 
 import os
+import shutil
 import time
 
 from flask import request, jsonify, Response, stream_with_context
@@ -623,6 +624,68 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
             "moved": moved, "errors": errors, "count": len(plan)}
 
 
+# -------- NEW: Import folder from source into a library --------
+def op_import_folder(source_path, dest_library_id, preserve_structure=True, move=True):
+    """Move or copy all audio files from a source folder into a destination library.
+    
+    If preserve_structure is True, the relative folder structure under source_path
+    is replicated under the destination library root. If False, all files are placed
+    directly in the root of the destination library.
+    """
+    if not os.path.isdir(source_path):
+        raise ValueError("Source path does not exist")
+    lib = store.get_library(dest_library_id)
+    if not lib:
+        raise ValueError("Destination library not found")
+    dest_root = lib["path"]
+    if not os.path.isdir(dest_root):
+        raise ValueError("Destination library path does not exist")
+    
+    settings = store.get()
+    extensions = set(settings["extensions"])
+    excluded = set(settings["excluded_folders"])
+    
+    moved = 0
+    errors = []
+    total_files = 0
+    
+    # First count total audio files for progress reporting
+    for _, _, files in os.walk(source_path):
+        total_files += sum(1 for f in files if os.path.splitext(f)[1].lower() in extensions)
+    
+    processed = 0
+    for dirpath, dirnames, filenames in os.walk(source_path):
+        # skip excluded folders
+        dirnames[:] = [d for d in dirnames if d.lower() not in excluded and not d.startswith(".")]
+        for f in filenames:
+            if os.path.splitext(f)[1].lower() not in extensions:
+                continue
+            src = os.path.join(dirpath, f)
+            rel_dir = os.path.relpath(dirpath, source_path)
+            if preserve_structure and rel_dir != '.':
+                dest_dir = os.path.join(dest_root, rel_dir)
+            else:
+                dest_dir = dest_root
+            dest = os.path.join(dest_dir, f)
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+                if move:
+                    shutil.move(src, dest)
+                else:
+                    shutil.copy2(src, dest)
+                moved += 1
+                events.log(f"{'Moved' if move else 'Copied'}: {src} -> {dest}", "verbose")
+            except Exception as e:
+                errors.append({"src": src, "error": str(e)})
+            processed += 1
+            if processed % 10 == 0:
+                events.progress(processed, total_files or 1, f"Importing into {lib['name']}")
+    events.progress(processed, total_files or 1, f"Import into {lib['name']} complete")
+    events.log(f"Import completed: {moved} files {'moved' if move else 'copied'}, {len(errors)} errors", "success")
+    return {"moved": moved, "errors": errors, "total": processed}
+# -------- END NEW --------
+
+
 # --- Job dispatch helper -------------------------------------------------
 
 def _start(operation, callback, *args, library=None, **kwargs):
@@ -939,6 +1002,21 @@ def register_routes(app):
                       bool(body.get("dry_run", True)),
                       bool(body.get("confirm", False)))
 
+    # -------- NEW: Import folder route --------
+    @app.post("/api/run/import-folder")
+    def run_import_folder():
+        body = _json_body()
+        source = body.get("source_path")
+        dest_lib = body.get("dest_library_id")
+        preserve = bool(body.get("preserve_structure", True))
+        move = bool(body.get("move", True))
+        if not source or not dest_lib:
+            return jsonify({"ok": False, "error": "source_path and dest_library_id are required"}), 400
+        if not os.path.isdir(source):
+            return jsonify({"ok": False, "error": "Source path does not exist"}), 400
+        return _start("import-folder", op_import_folder, source, dest_lib, preserve, move)
+    # -------- END NEW --------
+
     @app.post("/api/run/cleanup")
     def run_cleanup():
         body = _json_body()
@@ -1158,6 +1236,3 @@ def register_routes(app):
             "last_run": plex.get("last_rating_sync"),
             "last_result": plex.get("last_rating_sync_result"),
         })
-
-
-

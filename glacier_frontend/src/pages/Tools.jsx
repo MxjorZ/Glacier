@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   RefreshCw, FolderTree, Copy, ShieldAlert, ImageDown, ListMusic, FileText, Play,
+  FolderPlus, // <-- ADDED for import
 } from 'lucide-react';
 import { api, fmtBytes } from '../api.js';
 import { useJob } from '../useJob.js';
@@ -21,6 +22,16 @@ const POLICIES = [
   { value: 'move_to_library', label: 'Move extras to library' },
   { value: 'quarantine', label: 'Move extras to quarantine' },
 ];
+
+// Plain‑English descriptions for each policy
+const POLICY_DESCRIPTIONS = {
+  report_only: "Scans for duplicates but makes zero changes to your files. Just shows you the list of violations.",
+  keep_best_quality: "Keeps the highest quality file (FLAC > ALAC > MP3) in the preferred library if set, otherwise keeps the best quality file. Moves lower quality duplicates to quarantine.",
+  keep_preferred_library: "Keeps all copies inside your Preferred Library. Moves every duplicate from other libraries INTO that Preferred Library. Best for consolidation.",
+  keep_newest: "Keeps the file with the latest modification date. Moves the older duplicates to quarantine.",
+  move_to_library: "Keeps the copy already in the Target Library. Moves all other duplicates (extras) INTO that Target Library. (Requires a Target Library.)",
+  quarantine: "Moves EVERY duplicate file out of your libraries into a quarantine folder (~/.glacier_quarantine). Use this to completely remove duplicate copies from all libraries.",
+};
 
 export default function Tools() {
   const [libs, setLibs] = useState([]);
@@ -52,11 +63,33 @@ export default function Tools() {
   const [playlistRes, setPlaylistRes] = useState(null);
   const [report, setReport] = useState(null);
 
+  // -------- NEW: import folder state --------
+  const [importSource, setImportSource] = useState('');
+  const [importDestLib, setImportDestLib] = useState('');
+  const [importPreserve, setImportPreserve] = useState(true);
+  const [importMove, setImportMove] = useState(true);
+
+  const runImport = async () => {
+    const res = await run('import-folder', {
+      source_path: importSource,
+      dest_library_id: importDestLib,
+      preserve_structure: importPreserve,
+      move: importMove,
+    });
+    if (res?.ok) {
+      toast.success(`Imported ${res.moved} files, ${res.errors?.length || 0} errors`);
+      setImportSource('');
+    } else {
+      toast.error(res?.error || 'Import failed');
+    }
+  };
+  // -------- END NEW --------
+
   useEffect(() => {
     api.settings().then((s) => {
       const l = s.libraries || [];
       setLibs(l);
-      if (l.length) { setLibId(l[0].id); setPrefId(l[0].id); setTargetId(l[0].id); }
+      if (l.length) { setLibId(l[0].id); setPrefId(l[0].id); setTargetId(l[0].id); setImportDestLib(l[0].id); }
       setFolderPattern(s.folder_pattern || '');
       setNamingPattern(s.naming_pattern || '');
     }).catch(() => {});
@@ -255,9 +288,19 @@ export default function Tools() {
                 <Select value={policy} onValueChange={setPolicy}>
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {POLICIES.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                    {POLICIES.map((p) => (
+                      <SelectItem key={p.value} value={p.value} title={POLICY_DESCRIPTIONS[p.value]}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                {/* Description box */}
+                {POLICY_DESCRIPTIONS[policy] && (
+                  <div className="mt-1 rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    <strong>What this does:</strong> {POLICY_DESCRIPTIONS[policy]}
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">Preferred library</label>
@@ -297,6 +340,50 @@ export default function Tools() {
             </div>
           </CardContent>
         </Card>
+
+        {/* -------- NEW: Import folder card -------- */}
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2"><FolderPlus className="size-4 text-primary" /> Import folder</CardTitle>
+            <CardDescription>Move or copy all audio files from a source folder into a library</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">Source folder</label>
+              <Input
+                value={importSource}
+                onChange={(e) => setImportSource(e.target.value)}
+                placeholder="C:\Downloads\New Music"
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">Destination library</label>
+              <Select value={importDestLib} onValueChange={setImportDestLib}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Select a library" /></SelectTrigger>
+                <SelectContent>
+                  {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={importPreserve} onChange={(e) => setImportPreserve(e.target.checked)} />
+                Preserve folder structure
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={importMove} onChange={(e) => setImportMove(e.target.checked)} />
+                Move (instead of copy)
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={running || !importSource || !importDestLib} onClick={runImport}>
+                <RefreshCw className="size-3.5" /> Import
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        {/* -------- END NEW -------- */}
 
         {/* Export assets */}
         <Card>
@@ -370,4 +457,3 @@ export default function Tools() {
     </div>
   );
 }
-

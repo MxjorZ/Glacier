@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, PencilLine, Save, Folder, ListMusic, ArrowUpDown } from 'lucide-react';
+import { FolderOpen, PencilLine, Save, Folder, ListMusic, ArrowUpDown, Search } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card.jsx';
 import { Button } from '@/components/ui/button.jsx';
@@ -40,6 +40,9 @@ export default function Tags() {
   const [order, setOrder] = useState('asc');
   const [q, setQ] = useState('');
   const [loadedLib, setLoadedLib] = useState(false);
+
+  // Local search filter for the loaded list
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     api.settings().then((s) => { setLibs(s.libraries || []); }).catch(() => {});
@@ -121,6 +124,17 @@ export default function Tags() {
     if (v == null || v === '') return '—';
     return String(v);
   };
+
+  // Filter items by search query (title, artist, album, genre)
+  const filteredItems = items.filter((it) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.trim().toLowerCase();
+    const fields = ['title', 'artist', 'albumartist', 'album', 'genre', 'year'];
+    return fields.some((f) => {
+      const val = (it.tags && it.tags[f] !== undefined) ? it.tags[f] : it[f];
+      return val && String(val).toLowerCase().includes(q);
+    });
+  });
 
   return (
     <div>
@@ -223,6 +237,16 @@ export default function Tags() {
             </Button>
           </div>
 
+          {/* Search filter for the loaded items */}
+          <div className="flex items-center gap-2">
+            <Search className="size-4 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter loaded tracks by title, artist, album, or genre…"
+              className="max-w-md"
+            />
+          </div>
 
           {items.length === 0 ? <Empty text="Load a path to begin editing tags." /> : (
             <div className="overflow-auto rounded-lg border">
@@ -241,19 +265,25 @@ export default function Tags() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {items.map((it, i) => (
-                    <tr key={i} className={sel.has(i) ? 'bg-primary/5' : ''}>
-                      <td className="px-3 py-2">
-                        <input type="checkbox" checked={sel.has(i)} onChange={() => toggle(i)} />
-                      </td>
-                      <td className="px-3 py-2 font-medium">{shown(it, 'title')}</td>
-                      <td className="px-3 py-2">{shown(it, 'artist')}</td>
-                      <td className="px-3 py-2">{shown(it, 'album')}</td>
-                      <td className="px-3 py-2">{shown(it, 'genre')}</td>
-                      <td className="px-3 py-2">{shown(it, 'year')}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{it.path}</td>
-                    </tr>
-                  ))}
+                  {filteredItems.map((it, i) => {
+                    const originalIndex = items.indexOf(it);
+                    return (
+                      <tr key={i} className={sel.has(originalIndex) ? 'bg-primary/5' : ''}>
+                        <td className="px-3 py-2">
+                          <input type="checkbox" checked={sel.has(originalIndex)} onChange={() => toggle(originalIndex)} />
+                        </td>
+                        <td className="px-3 py-2 font-medium">{shown(it, 'title')}</td>
+                        <td className="px-3 py-2">{shown(it, 'artist')}</td>
+                        <td className="px-3 py-2">{shown(it, 'album')}</td>
+                        <td className="px-3 py-2">{shown(it, 'genre')}</td>
+                        <td className="px-3 py-2">{shown(it, 'year')}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{it.path}</td>
+                      </tr>
+                    );
+                  })}
+                  {filteredItems.length === 0 && (
+                    <tr><td colSpan="7" className="p-4 text-center text-muted-foreground">No tracks match your filter.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -265,4 +295,3 @@ export default function Tags() {
     </div>
   );
 }
-
