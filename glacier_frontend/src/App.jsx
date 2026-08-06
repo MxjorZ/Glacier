@@ -113,16 +113,16 @@ export default function App() {
 
       {ctx && (
         <div style={{ top: ctx.y, left: ctx.x }} className="fixed z-50 w-52 overflow-hidden rounded-lg border bg-popover p-1 shadow-xl">
-          <button onClick={() => { setCtx(null); nav('errors'); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
+          <button onClick={() => { setCtx(null); nav('errors'); }} className="context-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
             <ShieldAlert className="size-4 text-destructive" /> Error Center {errors.length > 0 && <span className="ml-auto text-xs text-destructive">({errors.length})</span>}
           </button>
-          <button onClick={() => { setCtx(null); nav('logs'); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
+          <button onClick={() => { setCtx(null); nav('logs'); }} className="context-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
             <ScrollText className="size-4" /> Logs
           </button>
-          <button onClick={() => { setCtx(null); nav('tools'); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
+          <button onClick={() => { setCtx(null); nav('tools'); }} className="context-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
             <Music2 className="size-4" /> Tools
           </button>
-          <button onClick={() => { setCtx(null); nav('settings'); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
+          <button onClick={() => { setCtx(null); nav('settings'); }} className="context-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
             <Wrench className="size-4" /> Settings
           </button>
         </div>

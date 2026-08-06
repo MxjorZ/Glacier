@@ -23,17 +23,31 @@ function fmtSpeed(rate) {
   return `${(Math.round(rate * 10) / 10).toFixed(1)}/s`;
 }
 
-// Category -> label + colour for the floating log console (Stage 4 #14).
+// Category -> label + colour for the floating log console
 const CATEGORIES = [
   { key: 'all', label: 'All', cls: 'text-foreground' },
-  { key: 'info', label: 'Info', cls: 'text-muted-foreground' },
+  { key: 'info', label: 'Info', cls: 'text-info' },
   { key: 'success', label: 'Success', cls: 'text-ok' },
   { key: 'warning', label: 'Warning', cls: 'text-warn' },
   { key: 'error', label: 'Error', cls: 'text-destructive' },
   { key: 'connected', label: 'Connected', cls: 'text-ok' },
   { key: 'disconnected', label: 'Disconnected', cls: 'text-destructive' },
   { key: 'progress', label: 'Progress', cls: 'text-warn' },
+  { key: 'verbose', label: 'Files', cls: 'text-muted-foreground' },
 ];
+
+// Map category to log CSS classes (for the border + background)
+const logClassMap = {
+  success: 'log-success',
+  error: 'log-error',
+  warning: 'log-warning',
+  warn: 'log-warning',
+  info: 'log-info',
+  verbose: 'log-verbose',
+  connected: 'log-success',
+  disconnected: 'log-error',
+  progress: 'log-info',
+};
 
 const catOf = (l) => {
   const t = l.type || l.level;
@@ -43,6 +57,7 @@ const catOf = (l) => {
   if (t === 'success') return 'success';
   if (t === 'warning' || t === 'warn') return 'warning';
   if (t === 'error') return 'error';
+  if (t === 'verbose') return 'verbose';
   return 'info';
 };
 
@@ -58,8 +73,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
   const [, tick] = useState(0);
   const logRef = useRef(null);
 
-  // Right-click context menu for a running job (Stage 4 fix): lets the user
-  // terminate the job.
+  // Right-click context menu for a running job
   const [jobMenu, setJobMenu] = useState(null);
   useEffect(() => {
     const close = () => setJobMenu(null);
@@ -214,15 +228,15 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
             <div className="flex flex-wrap items-center gap-1">
               {CATEGORIES.map((c) => (
                 <button key={c.key} onClick={() => setFilter(c.key)}
-                  className={cn('rounded-full px-2 py-0.5 text-[11px] capitalize',
+                  className={cn('rounded-full px-2 py-0.5 text-[11px] capitalize transition-all hover:scale-105 hover:shadow-[0_0_12px_var(--primary)]',
                     filter === c.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent')}>
                   {c.label}
                 </button>
               ))}
             </div>
             <div className="ml-auto flex items-center gap-1">
-              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={copyLogs} title="Copy logs"><Copy className="size-3.5" /></Button>
-              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={downloadLogs} title="Download logs"><Download className="size-3.5" /></Button>
+              <Button size="sm" variant="ghost" className="h-7 px-2 transition-all hover:scale-105 hover:shadow-[0_0_16px_var(--primary)]" onClick={copyLogs} title="Copy logs"><Copy className="size-3.5" /></Button>
+              <Button size="sm" variant="ghost" className="h-7 px-2 transition-all hover:scale-105 hover:shadow-[0_0_16px_var(--primary)]" onClick={downloadLogs} title="Download logs"><Download className="size-3.5" /></Button>
               <div className="flex items-center gap-1">
                 <span className="text-[10px] text-muted-foreground">Auto</span>
                 <button onClick={() => setAutoScroll((v) => !v)} title="Toggle auto-scroll"
@@ -248,7 +262,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
                   e.preventDefault();
                   e.stopPropagation();
                   setJobMenu({ id: j.id, x: e.clientX, y: e.clientY });
-                }} className="cursor-context-menu rounded-lg border bg-card/40 p-2 text-xs">
+                }} className="cursor-context-menu rounded-lg border bg-card/40 p-2 text-xs transition-all hover:border-primary hover:shadow-[0_0_20px_var(--primary)]">
                   <div className="flex items-center gap-2">
                     <span className="flex-1 truncate font-medium">{j.operation}</span>
                     <span className="flex items-center gap-1.5 font-mono text-muted-foreground">
@@ -282,9 +296,9 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
                 {visibleLogs.length === 0 && <p className="p-2 text-muted-foreground">No log entries match.</p>}
                 {visibleLogs.map((l) => {
                   const cat = catOf(l);
-                  const cls = CATEGORIES.find((c) => c.key === cat)?.cls || 'text-foreground';
+                  const logClass = logClassMap[cat] || '';
                   return (
-                    <div key={l.id} className={cn('flex items-start gap-1.5 px-1 py-0.5 break-all', cls)}>
+                    <div key={l.id} className={cn('flex items-start gap-1.5 px-1 py-0.5 break-all rounded border-l-2', logClass)}>
                       <span className="min-w-0">{l.message || l.label || ''}</span>
                     </div>
                   );
@@ -300,7 +314,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
         <div style={{ top: jobMenu.y, left: jobMenu.x }} className="fixed z-[60] w-48 overflow-hidden rounded-lg border bg-popover p-1 shadow-xl"
           onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
           <button onClick={terminateJob}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium text-destructive hover:bg-accent">
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium text-destructive transition-all hover:scale-105 hover:shadow-[0_0_20px_var(--destructive)]">
             <Square className="size-4" /> Terminate job
           </button>
         </div>

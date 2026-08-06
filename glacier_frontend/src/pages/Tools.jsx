@@ -29,7 +29,6 @@ const TOOLS = [
 export default function Tools() {
   const [selectedTool, setSelectedTool] = useState(null);
 
-  // If a tool is selected, render it with a back button
   if (selectedTool) {
     const tool = TOOLS.find((t) => t.id === selectedTool);
     if (!tool) return null;
@@ -38,7 +37,7 @@ export default function Tools() {
       <div>
         <button
           onClick={() => setSelectedTool(null)}
-          className="mb-4 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+          className="back-button mb-4 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
         >
           ← Back to Tools
         </button>
@@ -47,7 +46,6 @@ export default function Tools() {
     );
   }
 
-  // Otherwise render the grid of cards
   return (
     <div>
       <PageHeader
@@ -59,10 +57,10 @@ export default function Tools() {
           <button
             key={id}
             onClick={() => setSelectedTool(id)}
-            className="flex flex-col items-center justify-center rounded-xl border bg-card p-6 transition hover:bg-accent hover:shadow-md"
+            className="tool-card flex flex-col items-center justify-center rounded-xl border bg-card p-6 transition hover:bg-accent hover:shadow-md"
           >
-            <Icon className="size-10 text-primary" strokeWidth={1.5} />
-            <span className="mt-3 text-center text-sm font-medium">{label}</span>
+            <Icon className="tool-icon size-12 text-primary" strokeWidth={1.5} />
+            <span className="tool-label mt-3 text-center text-sm font-medium">{label}</span>
           </button>
         ))}
       </div>
