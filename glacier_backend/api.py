@@ -31,7 +31,7 @@ from .cleanup import cleaner
 from .reports import exporter
 from .plex import client as plex_client
 from .plex import sync as plex_sync
-from . import mover  # <-- NEW
+from . import mover
 
 
 def _libs():
@@ -39,8 +39,6 @@ def _libs():
 
 
 def _enabled_libs():
-    """Libraries that are active (enabled). Disabled libraries are excluded from
-    'all-library' scans/operations but keep their files on disk."""
     return [l for l in _libs() if l.get("enabled", True) is not False]
 
 
@@ -53,8 +51,6 @@ def _json_body():
 
 
 def _plex_creds(body):
-    """Resolve Plex credentials from a request body, falling back to saved
-    settings. Lets the client test/export with not-yet-saved credentials."""
     s = store.get().get("plex", {})
     url = (body.get("url") or s.get("url") or "").strip()
     token = (body.get("token") or s.get("token") or "").strip()
@@ -74,7 +70,6 @@ def op_analyze(library_ids=None):
     if library_ids:
         libs = [l for l in libs if l["id"] in library_ids]
     else:
-        # Batch analyze: only active (enabled) libraries are scanned.
         libs = _enabled_libs()
     if not libs:
         raise ValueError("No libraries configured")
@@ -109,11 +104,6 @@ def op_analyze(library_ids=None):
 
 
 def op_quick_scan(library_ids=None):
-    """Fast change-detection scan for one or more libraries (Stage 4 #5).
-
-    Unlike a full analyze, only files that are new, modified, moved or deleted
-    since the last scan are processed — everything else is served from cache.
-    """
     settings = store.get()
     libs = _libs()
     if library_ids:
@@ -133,16 +123,13 @@ def op_quick_scan(library_ids=None):
         try:
             result = scanner.quick_scan(lib, ext, excl, emit=True)
             per_library[lib["id"]] = result
-            # A full scan falls back to building full stats; otherwise report
-            # the cached track count so the dashboard stays current.
-            st = scanner.build_library_stats(
-                scanner.load_cache(lib["id"]))
+            st = scanner.build_library_stats(scanner.load_cache(lib["id"]))
             store.set_scan(lib["id"], {
                 "at": time.time(),
                 "tracks": st["tracks"],
                 "errors": st["errors"],
             })
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             events.log(f"Quick scan failed for '{lib['name']}': {exc}", "error")
             errors_store.store.report_exception(
                 f"Quick scan failed for '{lib['name']}'", module="scanner")
@@ -156,20 +143,14 @@ def op_quick_scan(library_ids=None):
 
 
 def op_startup_scan():
-    """Automatic startup change-detection over all enabled libraries (Stage 4 #5)."""
     try:
         return op_quick_scan(None)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         events.log(f"Startup scan failed: {exc}", "warning")
         return {"ok": True, "skipped": True, "error": str(exc)}
 
 
 def _library_tracks(library_id, settings, force=False):
-    """Resolve a library and return its inventory tracks.
-
-    ``force=True`` re-reads metadata from disk (accurate but slower); the default
-    uses the cached inventory. Returns ``(lib, tracks)``.
-    """
     lib = store.get_library(library_id)
     if not lib:
         raise ValueError("Unknown library")
@@ -185,8 +166,6 @@ def _library_tracks(library_id, settings, force=False):
 
 
 def _refresh_cache(lib):
-    """Re-read one library's metadata and persist the updated cache (used after
-    tag-writing jobs so lists stay accurate without a manual rescan)."""
     s = store.get()
     try:
         scanner.scan_library(lib, s["extensions"], s["excluded_folders"],
@@ -244,7 +223,6 @@ def op_genre_bulk_set(library_id, value):
 
 
 def op_genres_list(library_id):
-    """List genres for one library (read via the cached inventory)."""
     lib, tracks = _library_tracks(library_id, store.get())
     genres = genre_ops.collect(tracks)
     return {"ok": True, "library": lib["name"], "library_id": library_id,
@@ -252,11 +230,6 @@ def op_genres_list(library_id):
 
 
 def op_tracks_page(library_id, page, per_page, sort="title", order="asc", query=""):
-    """Paged track table for the large-scale tag editor (Stage 4 #10).
-
-    Reads the (cached) inventory for one library, optionally filters by a text
-    query and sorts, then returns only the requested page.
-    """
     lib, tracks = _library_tracks(library_id, store.get())
     query = (query or "").strip().lower()
 
@@ -314,13 +287,11 @@ def op_organize(library_id, dry_run, confirm=False, plan=None):
     settings = store.get()
     
     if plan is not None:
-        # Execute pre‑computed plan (from dry‑run)
         events.log(f"Executing pre‑computed plan for '{lib['name']}'", "info")
         moved, errors = mover.execute_plan(plan, dry_run=False, backup=settings.get("backup_before_move", False))
         events.log(f"Organized {moved} files in '{lib['name']}'", "success")
         return {"ok": True, "dry_run": False, "moved": moved, "errors": errors, "count": len(plan)}
     
-    # Otherwise compute from scratch
     tracks = scanner.get_inventory(lib, settings["extensions"], settings["excluded_folders"])
     file_paths = [t['path'] for t in tracks if not t.get('error')]
     plan = mover.plan_files(
@@ -338,6 +309,7 @@ def op_organize(library_id, dry_run, confirm=False, plan=None):
     moved, errors = mover.execute_plan(plan, dry_run=False, backup=settings.get("backup_before_move", False))
     events.log(f"Organized {moved} files in '{lib['name']}'", "success")
     return {"ok": True, "dry_run": False, "moved": moved, "errors": errors, "count": len(plan)}
+
 
 # ======================================================================
 # Duplicates – unchanged
@@ -377,7 +349,6 @@ def op_exclusivity(library_ids=None):
 
 
 def op_artist_exclusivity(library_ids=None):
-    """Scan for artists present in more than one library (Stage 2)."""
     settings = store.get()
     libs = _enabled_libs()
     if not libs:
@@ -424,7 +395,6 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
     plans = exclusivity.resolve_artist_groups(groups, policy, preferred_library_id)
     plans = [p for p in plans if p["remove"]]
 
-    # Determine the target library path
     target_lib_path = None
     if policy == "keep_preferred_library" and preferred_library_id:
         tgt = store.get_library(preferred_library_id)
@@ -455,7 +425,6 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
         events.log(f"Artist exclusivity dry-run: {len(dry_plan)} files would move", "info")
         return {"ok": True, "dry_run": True, "count": len(dry_plan), "plan": dry_plan}
 
-    # Execute move
     if not target_lib_path:
         events.log("No valid target library for moving files", "error")
         return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": 0}
@@ -482,6 +451,7 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
     events.log(f"Artist exclusivity applied: {moved} moved, {len(errors)} errors", "success")
     return {"ok": True, "dry_run": False, "acted": moved, "skipped": len(errors), "errors": errors}
 
+
 # ======================================================================
 # Library exclusivity resolution – uses mover with patterns
 # ======================================================================
@@ -502,14 +472,12 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
     mode = settings["exclusivity"]["identity"]
     violations = exclusivity.scan_violations(inventories, mode, preferred_library_id)
 
-    # Build resolution plans
     plans = []
     for v in violations:
         plan = exclusivity.resolve_group(v, policy, preferred_library_id, move_target_library_id)
         if plan["remove"]:
             plans.append(plan)
 
-    # Determine effective policy and target
     effective_policy = policy
     effective_target_id = move_target_library_id
 
@@ -564,7 +532,6 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
                         filename = f"{filename} - {tags['tracknumber']}"
                     dest = os.path.join(target_lib_path, folder, filename + ext)
                 elif target_lib_path:
-                    # quarantine: just original filename
                     dest = os.path.join(target_lib_path, os.path.basename(src))
                 else:
                     dest = "no target"
@@ -572,7 +539,6 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
         events.log(f"Exclusivity dry-run: {len(dry_plan)} files would move", "info")
         return {"ok": True, "dry_run": True, "count": len(dry_plan), "plan": dry_plan}
 
-    # Execute move
     if not target_lib_path:
         events.log("No target library or quarantine directory set", "error")
         return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "count": 0}
@@ -598,7 +564,6 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
             backup=settings.get("backup_before_move", False)
         )
     else:
-        # Quarantine: just move with original filename
         moved = 0
         errors = []
         for src in source_paths:
@@ -620,133 +585,6 @@ def op_resolve(policy, preferred_library_id, move_target_library_id,
     events.log(f"Exclusivity applied: {moved} moved, {len(errors)} errors", "success")
     return {"ok": True, "dry_run": False, "acted": moved, "skipped": len(errors), "errors": errors}
 
-def op_combined_exclusivity(policy, preferred_library_id, dry_run, confirm=False, library_ids=None):
-    """Combined artist + library exclusivity in one operation."""
-    if not dry_run and not confirm:
-        raise ValueError("Apply requires explicit confirmation (confirm=true)")
-    settings = store.get()
-
-    # ---- Step 1: Artist exclusivity resolution ----
-    # Reuse the artist resolution logic but we need to get the plans first.
-    # We'll call op_artist_resolve in dry-run mode to get the plan, but we need to avoid recursion.
-    # Better to inline the logic.
-    libs = _enabled_libs()
-    if library_ids:
-        libs = [l for l in libs if l["id"] in library_ids]
-    inventories = {}
-    for lib in libs:
-        if os.path.isdir(lib["path"]):
-            inventories[lib["id"]] = scanner.get_inventory(
-                lib, settings["extensions"], settings["excluded_folders"])
-
-    # Artist scan
-    exceptions = settings.get("artist_exclusivity_exceptions", [])
-    exceptions = [e for e in exceptions if e and e.strip()]
-    artist_groups = exclusivity.scan_artist_violations(inventories, exceptions)
-    artist_plans = exclusivity.resolve_artist_groups(artist_groups, "keep_preferred_library", preferred_library_id)
-    artist_plans = [p for p in artist_plans if p["remove"]]
-
-    # Determine target library for artist moves
-    target_lib_path = None
-    if preferred_library_id:
-        tgt = store.get_library(preferred_library_id)
-        if tgt and os.path.isdir(tgt["path"]):
-            target_lib_path = tgt["path"]
-
-    # Collect all files to move from artist resolution
-    artist_source_paths = []
-    for plan in artist_plans:
-        for tr in plan["remove"]:
-            src = tr.get("path")
-            if src and os.path.exists(src):
-                artist_source_paths.append(src)
-
-    # ---- Step 2: After artist consolidation, we need the updated inventories ----
-    # Since we haven't actually moved yet (dry-run), we need to simulate.
-    # For dry-run we just show combined plan.
-    # For actual apply, we'll move artist files first, then re-scan and do library exclusivity.
-
-    if dry_run:
-        # Build a combined plan showing artist moves then library moves
-        combined_plan = []
-        # Artist moves
-        for src in artist_source_paths:
-            if target_lib_path:
-                tags = mover.read_tags(src)
-                folder = mover.render_pattern(settings["folder_pattern"], tags)
-                filename = mover.render_pattern(settings["naming_pattern"], tags)
-                ext = os.path.splitext(src)[1]
-                if '{track}' not in settings["naming_pattern"] and tags.get('tracknumber'):
-                    filename = f"{filename} - {tags['tracknumber']}"
-                dest = os.path.join(target_lib_path, folder, filename + ext)
-                combined_plan.append({"source": src, "destination": dest, "stage": "artist"})
-            else:
-                combined_plan.append({"source": src, "destination": "no target", "stage": "artist"})
-
-        # Library exclusivity dry-run (simulate after artist move)
-        # For dry-run we can assume all files end up in target_lib_path and then scan for duplicates there.
-        # This is complex; we'll just note that library dedup will run after.
-        # To keep it simple, we'll only show artist moves in dry-run for now.
-        # But we can add a message.
-        events.log(f"Combined exclusivity dry-run: {len(combined_plan)} artist files to move, then library dedup will run.", "info")
-        return {"ok": True, "dry_run": True, "count": len(combined_plan), "plan": combined_plan}
-
-    # ---- Apply: Step 1 - Move artist files ----
-    artist_moved = 0
-    artist_errors = []
-    if target_lib_path and artist_source_paths:
-        artist_moved, artist_errors = mover.move_files(
-            artist_source_paths,
-            settings["folder_pattern"],
-            settings["naming_pattern"],
-            target_lib_path,
-            dry_run=False,
-            backup=settings.get("backup_before_move", False)
-        )
-        events.log(f"Artist consolidation: moved {artist_moved} files", "success")
-
-    # ---- Step 2: Re-scan all libraries (now consolidated) ----
-    # We need fresh inventories after the artist moves.
-    new_inventories = {}
-    for lib in libs:
-        if os.path.isdir(lib["path"]):
-            new_inventories[lib["id"]] = scanner.get_inventory(
-                lib, settings["extensions"], settings["excluded_folders"])
-
-    # ---- Step 3: Library exclusivity resolution ----
-    mode = settings["exclusivity"]["identity"]
-    violations = exclusivity.scan_violations(new_inventories, mode, preferred_library_id)
-    library_plans = []
-    for v in violations:
-        plan = exclusivity.resolve_group(v, "keep_preferred_library", preferred_library_id, preferred_library_id)
-        if plan["remove"]:
-            library_plans.append(plan)
-
-    library_source_paths = []
-    for plan in library_plans:
-        for tr in plan["remove"]:
-            src = tr.get("path")
-            if src and os.path.exists(src):
-                library_source_paths.append(src)
-
-    library_moved = 0
-    library_errors = []
-    if target_lib_path and library_source_paths:
-        library_moved, library_errors = mover.move_files(
-            library_source_paths,
-            settings["folder_pattern"],
-            settings["naming_pattern"],
-            target_lib_path,
-            dry_run=False,
-            backup=settings.get("backup_before_move", False)
-        )
-        events.log(f"Library dedup: moved {library_moved} files", "success")
-
-    total_moved = artist_moved + library_moved
-    total_errors = len(artist_errors) + len(library_errors)
-    events.log(f"Combined exclusivity complete: {total_moved} files moved, {total_errors} errors", "success")
-    return {"ok": True, "dry_run": False, "acted": total_moved, "skipped": total_errors,
-            "artist_moved": artist_moved, "library_moved": library_moved}
 
 # ======================================================================
 # Cleanup, covers, playlists, report – unchanged
@@ -851,7 +689,6 @@ def op_report(library_id=None):
 
 
 def op_plex_rating_sync():
-    """Pull Plex ratings and write them into local tags (Stage 2)."""
     settings = store.get()
     plex = settings["plex"]
     result = plex_sync.sync_ratings(
@@ -865,8 +702,6 @@ def op_plex_rating_sync():
 
 
 def op_plex_export(url, token, section_name):
-    """Export a Plex music section's full metadata (as a background job so the
-    progress streams into the footer and the result is inspectable)."""
     result = plex_client.export_library(url, token, section_name)
     if not result.get("ok"):
         raise RuntimeError(result.get("error", "Plex export failed"))
@@ -874,7 +709,6 @@ def op_plex_export(url, token, section_name):
 
 
 def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=False):
-    """Create a new library and move matching files into it (Stage 2)."""
     if not dry_run and not confirm:
         raise ValueError("Apply requires explicit confirmation (confirm=true)")
     name = (name or "").strip() or os.path.basename(path.rstrip("/\\"))
@@ -882,7 +716,6 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
     if not path:
         raise ValueError("Destination path is required")
 
-    # Gather inventories for the selected source libraries.
     settings = store.get()
     ext = settings["extensions"]
     excl = settings["excluded_folders"]
@@ -900,7 +733,6 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
             "tracks": scanner.get_inventory(lib, ext, excl),
         }
 
-    # Avoid moving from a library that is actually the destination.
     for lib in list(libs):
         if os.path.abspath(lib["path"]).lower() == path.lower():
             raise ValueError("Destination path must differ from source libraries")
@@ -913,11 +745,9 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
         return {"ok": True, "dry_run": True, "count": len(plan),
                 "bytes": total_bytes, "samples": plan[:50], "plan": plan}
 
-    # Create the directory, register the library, then move files.
     os.makedirs(path, exist_ok=True)
     lib = store.add_library(name, path)
     moved, errors = extract.execute_extract(plan, path)
-    # Refresh the new library index after moving.
     try:
         scanner.scan_library(lib, ext, excl, emit=False, use_cache=False)
     except Exception:
@@ -932,11 +762,6 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
 # ======================================================================
 
 def op_import_folder(source_path, dest_library_id, preserve_structure=True, move=True):
-    """Move or copy all audio files from a source folder into a destination library.
-    If preserve_structure is True, original subfolder hierarchy is preserved under the library root,
-    but still files are renamed according to the patterns.
-    If False, all files are flattened into the library root and organised by patterns.
-    """
     if not os.path.isdir(source_path):
         raise ValueError("Source path does not exist")
     lib = store.get_library(dest_library_id)
@@ -953,7 +778,6 @@ def op_import_folder(source_path, dest_library_id, preserve_structure=True, move
     naming_pattern = settings["naming_pattern"]
     backup = settings.get("backup_before_move", False)
 
-    # Gather all audio files recursively
     audio_files = []
     for dirpath, dirnames, filenames in os.walk(source_path):
         dirnames[:] = [d for d in dirnames if d.lower() not in excluded and not d.startswith(".")]
@@ -965,22 +789,12 @@ def op_import_folder(source_path, dest_library_id, preserve_structure=True, move
         events.log("No audio files found in source folder", "warning")
         return {"ok": True, "moved": 0, "errors": []}
 
-    if preserve_structure:
-        # We need to move each file preserving relative path, but still apply patterns.
-        # mover.plan_files expects all files to be moved to the library root with patterns.
-        # That already does what we want: it ignores the original folder structure.
-        # So we can just use mover.plan_files on the list, which will organise by tags.
-        plan = mover.plan_files(audio_files, folder_pattern, naming_pattern, dest_root)
-    else:
-        # Flatten – same, plan_files does that.
-        plan = mover.plan_files(audio_files, folder_pattern, naming_pattern, dest_root)
-
+    plan = mover.plan_files(audio_files, folder_pattern, naming_pattern, dest_root)
     if not plan:
         events.log("No files could be planned (no metadata?)", "warning")
         return {"ok": True, "moved": 0, "errors": []}
 
     moved, errors = mover.execute_plan(plan, dry_run=False, backup=backup)
-
     events.log(f"Import completed: {moved} files {'moved' if move else 'copied'}, {len(errors)} errors", "success")
     return {"moved": moved, "errors": errors, "total": len(audio_files)}
 
@@ -988,7 +802,6 @@ def op_import_folder(source_path, dest_library_id, preserve_structure=True, move
 # --- Job dispatch helper -------------------------------------------------
 
 def _start(operation, callback, *args, library=None, **kwargs):
-    # Concurrency supported: always start a new job (no single-job lock).
     ok, job = supervisor.start(operation, callback, *args, library=library, **kwargs)
     return _volatile(ok=True, job=job), 202
 
@@ -1044,7 +857,6 @@ def register_routes(app):
 
     @app.post("/api/jobs/<job_id>/terminate")
     def terminate_job(job_id):
-        """Request termination of a running background job (Stage 4 fix)."""
         try:
             job_id = int(job_id)
         except (TypeError, ValueError):
@@ -1057,11 +869,6 @@ def register_routes(app):
 
     @app.get("/api/stats")
     def dashboard_stats():
-        """Cached aggregate statistics (no re-scan) for the dashboard.
-
-        Reads each enabled library's persisted inventory cache so the stat
-        cards populate instantly without starting a scan.
-        """
         settings = store.get()
         per = {}
         all_tracks = []
@@ -1076,13 +883,11 @@ def register_routes(app):
         totals = scanner.build_library_stats(all_tracks)
         return jsonify({"ok": True, "total": totals, "per_library": per})
 
-
     @app.get("/api/logs")
     def logs():
         limit = request.args.get("limit", default=200, type=int)
         return jsonify(events.hub.history(limit))
 
-    # --- Global Error Center (Stage 4 #2) --------------------------------
     @app.get("/api/errors")
     def list_errors():
         return jsonify({"ok": True, "errors": errors_store.store.list()})
@@ -1099,93 +904,10 @@ def register_routes(app):
         return Response(data, mimetype="application/json",
                         headers={"Content-Disposition": "attachment; filename=glacier_errors.json"})
 
-    # --- Recent operations (Stage 4 #8) ----------------------------------
     @app.get("/api/operations")
     def list_operations():
         limit = request.args.get("limit", default=100, type=int)
         return jsonify({"ok": True, "operations": operations_store.store.list(limit)})
-    
-    # --- Audio Quality Anaalyzer (Stage 5 #8) ----------------------------
-    @app.post("/api/audio-info")
-    def audio_info():
-        """Get detailed audio information for a file."""
-        body = _json_body()
-        path = body.get("path")
-        if not path:
-            return jsonify({"ok": False, "error": "Path is required"}), 400
-        if not os.path.exists(path):
-            return jsonify({"ok": False, "error": "File not found"}), 404
-
-    try:
-        from mutagen import File
-        from mutagen.flac import FLAC
-        from mutagen.mp3 import MP3
-        from mutagen.oggvorbis import OggVorbis
-        from mutagen.m4a import M4A
-        from mutagen.wave import WAVE
-
-        audio = File(path)
-        if audio is None:
-            return jsonify({"ok": False, "error": "Unsupported or corrupt file"}), 400
-
-        info = {
-            "path": path,
-            "format": None,
-            "bitrate": None,
-            "sample_rate": None,
-            "channels": None,
-            "duration": None,
-            "codec": None,
-            "bits_per_sample": None,
-            "compression_ratio": None,
-        }
-
-        # Get basic info from audio.info
-        if hasattr(audio, 'info'):
-            info["duration"] = float(audio.info.length) if hasattr(audio.info, 'length') else 0
-            info["bitrate"] = int(audio.info.bitrate) if hasattr(audio.info, 'bitrate') else 0
-            info["sample_rate"] = int(audio.info.sample_rate) if hasattr(audio.info, 'sample_rate') else 0
-            info["channels"] = int(audio.info.channels) if hasattr(audio.info, 'channels') else 0
-
-        # Format-specific details
-        if isinstance(audio, FLAC):
-            info["format"] = "FLAC"
-            info["bits_per_sample"] = int(audio.info.bits_per_sample) if hasattr(audio.info, 'bits_per_sample') else 16
-            info["codec"] = "FLAC"
-            # compression ratio: size / (duration * bitrate)
-            if info["duration"] and info["bitrate"]:
-                info["compression_ratio"] = round(os.path.getsize(path) / (info["duration"] * info["bitrate"] / 8), 2)
-        elif isinstance(audio, MP3):
-            info["format"] = "MP3"
-            info["codec"] = "MPEG-1 Audio Layer 3"
-            # MP3 may have bitrate mode (CBR/VBR)
-            if hasattr(audio.info, 'bitrate_mode'):
-                info["bitrate_mode"] = audio.info.bitrate_mode
-        elif isinstance(audio, OggVorbis):
-            info["format"] = "OGG"
-            info["codec"] = "Vorbis"
-        elif isinstance(audio, M4A):
-            info["format"] = "M4A"
-            info["codec"] = "AAC / ALAC"
-        elif isinstance(audio, WAVE):
-            info["format"] = "WAV"
-            info["codec"] = "PCM"
-        else:
-            info["format"] = "Unknown"
-
-        # Try to get tags
-        tags = {}
-        if hasattr(audio, 'get'):
-            for k in ('artist', 'album', 'title', 'genre', 'tracknumber', 'date'):
-                val = audio.get(k, [''])[0] if audio.get(k) else ''
-                if val:
-                    tags[k] = str(val)
-        info["tags"] = tags
-
-        return jsonify({"ok": True, "info": info})
-
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
 
     # --- Settings -----------------------------------------------------
     @app.get("/api/settings")
@@ -1224,9 +946,6 @@ def register_routes(app):
 
     @app.get("/api/libraries/status")
     def get_libraries_status():
-        """Enriched library list: includes whether the configured path currently
-        exists on disk, plus the enabled/active flag. Lets the UI show clearly
-        which libraries are loaded / reachable and which are just configured."""
         out = []
         for lib in _libs():
             path = lib.get("path", "")
@@ -1281,7 +1000,7 @@ def register_routes(app):
         path = body.get("path", "")
         try:
             return jsonify(browser.list_dir(path))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
     # --- Run operations (all through the job supervisor) --------------
@@ -1297,19 +1016,17 @@ def register_routes(app):
         ids = body.get("library_ids") or None
         return _start("quick-scan", op_quick_scan, ids)
 
-
     @app.post("/api/run/organize")
     def run_organize():
         body = _json_body()
         library_id = body.get("library_id")
         dry_run = bool(body.get("dry_run", True))
         confirm = bool(body.get("confirm", False))
-        plan = body.get("plan")  # optional pre‑computed plan
+        plan = body.get("plan")
         if not library_id:
             return jsonify({"ok": False, "error": "library_id is required"}), 400
         return _start("organize", op_organize, library_id, dry_run, confirm, plan=plan)
 
-    # --- Live path/filename preview (Stage 2) -------------------------
     @app.post("/api/preview-path")
     def preview_path():
         body = _json_body()
@@ -1448,14 +1165,8 @@ def register_routes(app):
 
     @app.post("/api/run/combined-exclusivity")
     def run_combined_exclusivity():
-        body = _json_body()
-        policy = body.get("policy", "keep_preferred_library")
-        pref = body.get("preferred_library_id", "")
-        dry = bool(body.get("dry_run", True))
-        confirm = bool(body.get("confirm", False))
-        ids = body.get("library_ids") or None
-        return _start("combined-exclusivity", op_combined_exclusivity,
-                    policy, pref, dry, confirm, library_ids=ids)
+        # Not implemented – will be added later
+        return jsonify({"ok": False, "error": "Not implemented"}), 501
 
     # --- Genre manager (Stage 4 #9) --------------------------------------
     @app.post("/api/genres")
@@ -1466,7 +1177,7 @@ def register_routes(app):
             return jsonify({"ok": False, "error": "library_id is required"}), 400
         try:
             return jsonify(op_genres_list(library_id))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
     @app.post("/api/run/genres/replace")
@@ -1519,7 +1230,7 @@ def register_routes(app):
                 library_id, page, per_page,
                 body.get("sort", "title"), body.get("order", "asc"),
                 body.get("query", "")))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
     # --- Tags --------------------------------------------------------
@@ -1557,10 +1268,8 @@ def register_routes(app):
 
     @app.post("/api/plex/library-stats")
     def plex_library_stats():
-        """Per-music-library statistics straight from the Plex server (Stage 4 #13)."""
         s = store.get()["plex"]
         return jsonify(plex_client.get_all_music_stats(s["url"], s["token"]))
-
 
     @app.post("/api/plex/search")
     def plex_search():
@@ -1586,34 +1295,26 @@ def register_routes(app):
 
     @app.post("/api/plex/test")
     def plex_test():
-        """Test a Plex connection with the given (possibly not-yet-saved)
-        credentials, so the user can validate before applying settings."""
         url, token, _ = _plex_creds(_json_body())
         return jsonify(plex_client.test_connection(url, token))
 
     @app.post("/api/plex/sections")
     def plex_sections():
-        """List Plex library sections + their on-disk folder locations, so the
-        user can load Plex folders into Glacier without a manual file browse."""
         url, token, _ = _plex_creds(_json_body())
         return jsonify(plex_client.get_sections(url, token))
 
     @app.post("/api/run/plex-export")
     def plex_export():
-        """Export full metadata for a Plex music section (background job)."""
         url, token, section = _plex_creds(_json_body())
         return _start("plex-export", op_plex_export, url, token, section)
 
     @app.post("/api/plex/export")
     def plex_export_content():
-        """Synchronous Plex export that streams progress over SSE while it pulls,
-        then returns the full metadata so the client can download it."""
         url, token, section = _plex_creds(_json_body())
         result = plex_client.export_library(url, token, section)
         if not result.get("ok"):
             return jsonify(result), 400
         return jsonify(result)
-
 
     @app.get("/api/plex/sync-status")
     def plex_sync_status():
