@@ -8,6 +8,7 @@ consistent with the Tags editor.
 """
 
 from .. import events
+from ..cancel import is_cancelled, JobCancelled
 from ..library import metadata
 
 
@@ -39,6 +40,8 @@ def apply_transform(paths, transform_fn, label):
     applied = skipped = 0
     errors = []
     for i, p in enumerate(paths):
+        if is_cancelled():
+            raise JobCancelled()
         rec = metadata.read(p)
         if rec.get("error"):
             errors.append({"path": p, "error": rec.get("error")})
@@ -53,10 +56,8 @@ def apply_transform(paths, transform_fn, label):
             applied += 1
         else:
             errors.append({"path": p, "error": res.get("error")})
-        if (i + 1) % 25 == 0:
+        if (i + 1) % 25 == 0 or i + 1 == len(paths):
             events.progress(i + 1, len(paths), label)
-    if paths:
-        events.progress(len(paths), len(paths), label)
     return applied, skipped, errors
 
 

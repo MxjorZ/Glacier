@@ -36,6 +36,25 @@ export const api = {
 
   run: (op, body) => req('POST', `/api/run/${op}`, body),
 
+  // Start a job and poll its history entry until it finishes. Resolves with
+  // the job's result. One shared implementation — previously three pages had
+  // their own private copies of this loop.
+  runAndAwait: async (op, body, { timeoutMs = 30 * 60 * 1000, pollMs = 500 } = {}) => {
+    const start = await req('POST', `/api/run/${op}`, body);
+    const jid = start?.job?.id;
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      await new Promise((r) => setTimeout(r, pollMs));
+      const hist = await req('GET', '/api/jobs/history');
+      const jobs = hist.jobs || [];
+      const done = jid != null
+        ? jobs.find((j) => j.id === jid && j.status !== 'running')
+        : jobs.filter((j) => j.status !== 'running').pop();
+      if (done) return done.result ?? done;
+    }
+    throw new Error('Job timed out');
+  },
+
   previewPath: (body) => req('POST', '/api/preview-path', body),
 
   artistExclusivity: () => req('POST', '/api/run/artist-exclusivity'),

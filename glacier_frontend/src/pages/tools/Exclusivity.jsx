@@ -83,7 +83,7 @@ export default function Exclusivity() {
       policy, preferred_library_id: prefId, move_target_library_id: targetId, dry_run: dryRun, confirm: !dryRun,
     });
     if (dryRun) {
-      if (res?.ok) { setExclPlans(res.plans || []); toast.success(`${res.count} groups would be resolved`); }
+      if (res?.ok) { setExclPlans(res.plan || []); toast.success(`${res.count} file(s) would move`); }
       else toast.error(res.error || 'Dry-run failed');
     } else if (res?.ok) {
       toast.success(`${res.acted} files processed, ${res.skipped} skipped`); setExclApply(false); setExclPlans([]);
@@ -102,7 +102,7 @@ export default function Exclusivity() {
       dry_run: dry, confirm: !dry,
     });
     if (dry) {
-      if (res?.ok) { setArtistPlans(res.plans || []); toast.success(`${res.count} artist(s) would be moved`); }
+      if (res?.ok) { setArtistPlans(res.plan || []); toast.success(`${res.count} file(s) would move`); }
       else toast.error(res.error || "Dry-run failed");
     } else if (res?.ok) {
       toast.success(`${res.acted} moved, ${res.skipped} skipped`);
@@ -171,9 +171,24 @@ export default function Exclusivity() {
               </div>
               {violations.length > 0 && (
                 <div className="max-h-40 space-y-1 overflow-auto rounded-lg border bg-muted/30 p-2 font-mono text-xs">
-                  {violations.slice(0, 120).map((v, i) => (
+                  {violations.slice(0, 120).map((v, i) => {
+                    const tr = (v.tracks || [])[0];
+                    const label = tr?.tags
+                      ? `${tr.tags.artist || '?'} – ${tr.tags.title || '?'}`
+                      : v.identity;
+                    return (
+                      <div key={i} className="truncate border-b border-border/40 py-0.5">
+                        {label} — in {v.libraries?.length || 0} libraries ({v.count} copies)
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {exclPlans.length > 0 && (
+                <div className="max-h-40 space-y-1 overflow-auto rounded-lg border bg-muted/30 p-2 font-mono text-xs">
+                  {exclPlans.slice(0, 120).map((p, i) => (
                     <div key={i} className="truncate border-b border-border/40 py-0.5">
-                      {v.title || v.path} — {v.libraries ? v.libraries.join(', ') : 'duplicate'}
+                      {p.source} → {p.destination}
                     </div>
                   ))}
                 </div>
@@ -260,6 +275,16 @@ export default function Exclusivity() {
                     <li>The artists are tagged consistently (case and punctuation are ignored).</li>
                     <li>You have scanned your libraries (Dashboard → Scan).</li>
                   </ul>
+                </div>
+              )}
+
+              {artistPlans.length > 0 && (
+                <div className="max-h-40 space-y-1 overflow-auto rounded-lg border bg-muted/30 p-2 font-mono text-xs">
+                  {artistPlans.slice(0, 120).map((p, i) => (
+                    <div key={i} className="truncate border-b border-border/40 py-0.5">
+                      {p.source} → {p.destination}
+                    </div>
+                  ))}
                 </div>
               )}
 

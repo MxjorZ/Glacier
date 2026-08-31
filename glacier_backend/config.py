@@ -23,13 +23,22 @@ ERRORS_PATH = Path.home() / ".glacier_errors.json"
 OPERATIONS_PATH = Path.home() / ".glacier_operations.json"
 
 # Audio file extensions Glacier knows how to read metadata for.
-SUPPORTED_EXTENSIONS = [".flac", ".mp3", ".ogg", ".m4a", ".opus", ".wma"]
+SUPPORTED_EXTENSIONS = [".flac", ".mp3", ".ogg", ".opus", ".m4a", ".wma", ".wav"]
 
 # Excluded folder names by default (matched by exact lowercase name).
 DEFAULT_EXCLUDED_FOLDERS = ["playlists", "- playlists", ".thumbnails", "@eadir"]
 
 DEFAULT_FOLDER_PATTERN = "{albumartist}/{album} ({year})"
-DEFAULT_NAMING_PATTERN = "{artist} - {album} - {track:02d} - {title}"
+DEFAULT_NAMING_PATTERN = "{artist} - {album} - {track} - {title}"
+
+# Pattern fields accepted by the mover's renderer, in addition to plain tags.
+# {year} falls back to the first 4 digits of {date}; {track} is zero-padded
+# only when the pattern uses an explicit width like {track:02d}.
+PATTERN_FIELD_ALIASES = {
+    "year": ("date",),
+    "album_artist": ("albumartist",),
+    "artists": ("artist",),
+}
 
 # Identity matching priority for cross-library exclusivity (flag based).
 EXCLUSIVITY_AUTO = "auto"          # use the first identity level that matches
@@ -69,7 +78,9 @@ DEFAULT_SETTINGS = {
         "port": DEFAULT_PORT,
     },
     "libraries": [],
-    "extensions": [".flac", ".mp3"],
+    # Default: every audio format the metadata layer understands. FLAC is the
+    # primary target; mp3/ogg/opus/m4a/wma/wav come along automatically.
+    "extensions": list(SUPPORTED_EXTENSIONS),
     "excluded_folders": list(DEFAULT_EXCLUDED_FOLDERS),
     "folder_pattern": DEFAULT_FOLDER_PATTERN,
     "naming_pattern": DEFAULT_NAMING_PATTERN,

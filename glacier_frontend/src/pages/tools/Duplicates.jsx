@@ -52,14 +52,22 @@ export default function Duplicates() {
             <Empty text="No duplicate groups found." />
           ) : (
             <div className="max-h-64 space-y-3 overflow-auto">
-              {dupGroups.map((g, i) => (
-                <div key={i} className="rounded-lg border bg-muted/30 p-2 text-xs">
-                  <div className="font-medium">{g.title || g.artist || 'Track'}</div>
-                  <div className="mt-1 space-y-0.5 font-mono text-muted-foreground">
-                    {(g.files || g.tracks || []).map((f, j) => <div key={j} className="truncate">{f.path || f}</div>)}
+              {dupGroups.map((g, i) => {
+                const tr = (g.tracks || [])[0] || {};
+                const label = tr.tags
+                  ? `${tr.tags.artist || '?'} – ${tr.tags.title || '?'}`
+                  : g.identity;
+                return (
+                  <div key={i} className="rounded-lg border bg-muted/30 p-2 text-xs">
+                    <div className="font-medium">{label}</div>
+                    <div className="mt-1 space-y-0.5 font-mono text-muted-foreground">
+                      {(g.tracks || []).map((f, j) => (
+                        <div key={j} className="truncate">{f.path}</div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

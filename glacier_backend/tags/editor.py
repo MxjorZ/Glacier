@@ -6,6 +6,7 @@ These map directly to the /api/tag-list, /api/tag-read, /api/tag-save routes.
 import os
 
 from .. import events
+from ..cancel import is_cancelled, JobCancelled
 from ..library import metadata
 
 CANONICAL_FIELDS = ["artist", "albumartist", "album", "title", "track", "date", "genre", "isrc", "rating"]
@@ -43,13 +44,13 @@ def apply(paths, field, value):
     applied = 0
     errors = []
     for i, p in enumerate(paths):
+        if is_cancelled():
+            raise JobCancelled()
         res = metadata.write(p, {field: value})
         if res.get("ok"):
             applied += 1
         else:
             errors.append({"path": p, "error": res.get("error")})
-        if (i + 1) % 25 == 0:
+        if (i + 1) % 25 == 0 or i + 1 == len(paths):
             events.progress(i + 1, len(paths), f"Tagging {field}")
-    if paths:
-        events.progress(len(paths), len(paths), f"Tagging {field}")
     return applied, errors

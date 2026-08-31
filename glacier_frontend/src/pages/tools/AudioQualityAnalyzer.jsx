@@ -28,9 +28,11 @@ export default function AudioQualityAnalyzer() {
 
   useEffect(() => {
     if (!libId) return;
-    api.tracks({ library_id: libId, page: 1, per_page: 1000 })
+    setLoading(true);
+    api.tracks({ library_id: libId, page: 1, per_page: 200 })
       .then((res) => setTracks(res.items || []))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [libId]);
 
   const loadAudioInfo = async (path) => {
@@ -119,8 +121,7 @@ export default function AudioQualityAnalyzer() {
             <SelectTrigger className="w-full"><SelectValue placeholder="Choose a track…" /></SelectTrigger>
             <SelectContent className="max-h-60">
               {tracks.map((t) => {
-                const tags = t.tags || {};
-                const label = `${tags.artist || '?'} – ${tags.title || t.path}`;
+                const label = `${t.artist || '?'} – ${t.title || t.path}`;
                 return <SelectItem key={t.path} value={t.path}>{label}</SelectItem>;
               })}
             </SelectContent>
@@ -166,7 +167,9 @@ export default function AudioQualityAnalyzer() {
         open={picker}
         onClose={() => setPicker(false)}
         onSelect={onFileExplorerSelect}
-        audioOnly={true}  // <-- only show audio files
+        mode="file"
+        audioOnly
+        multiple={false}
       />
     </div>
   );

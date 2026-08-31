@@ -9,6 +9,8 @@ Designed for Linux/Docker environments:
 """
 
 import os
+import time
+import threading
 
 from . import config
 
@@ -22,6 +24,34 @@ AUDIO_EXTS = {
 MAX_DIRS = 5000
 MAX_FILES = 100000
 TOTAL_CAP = 100000
+
+# Per-folder recursive audio counts, cached so navigating a large tree does
+# not re-walk the same subtree on every click. Entries expire after 10 min
+# so external changes are eventually reflected.
+_COUNT_TTL = 600
+_count_cache = {}
+_count_lock = threading.Lock()
+
+
+def _cached_audio_total(path):
+    now = time.time()
+    key = os.path.normcase(os.path.abspath(path))
+    with _count_lock:
+        hit = _count_cache.get(key)
+        if hit and now - hit[0] < _COUNT_TTL:
+            return hit[1], hit[2]
+    total, estimate = count_audio(path)
+    with _count_lock:
+        _count_cache[key] = (now, total, estimate)
+        if len(_count_cache) > 5000:
+            _count_cache.clear()
+    return total, estimate
+
+
+def invalidate_counts():
+    """Drop cached audio counts (called after organize/import/scan jobs)."""
+    with _count_lock:
+        _count_cache.clear()
 
 
 def _is_audio(filename):
@@ -213,8 +243,7 @@ def list_dir(path=None):
     )
 
 
-    audio_total, estimate = count_audio(path)
-
+    audio_total, estimate = _cached_audio_total(path)
 
     return {
         "path": path,
@@ -232,6 +261,7 @@ def list_dir(path=None):
 
         "audio_total": audio_total,
         "audio_total_estimate": estimate,
+        "audio_total_cached": True,
 
         "dirs_total": len(dirs),
         "files_total": len(files),

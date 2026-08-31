@@ -64,23 +64,10 @@ export default function Plex() {
   const runSync = async () => {
     setSyncing(true);
     try {
-      const start = await api.plex.syncRatings();
-      if (!start?.ok) { toast.error(start?.error || 'Sync failed to start'); return; }
-      toast.success('Rating sync started');
-      const deadline = Date.now() + 120000;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 700));
-        const hist = await api.get('/api/jobs/history');
-        const j = (hist.jobs || []).find(
-          (x) => x.operation === 'plex-rating-sync' && x.status !== 'running');
-        if (j) {
-          if (j.status === 'error') toast.error('Rating sync failed: ' + (j.result?.error || 'error'));
-          else toast.success(`Sync done: ${j.result?.written ?? 0} written, ${j.result?.matched ?? 0} matched`);
-          loadSyncStatus();
-          return;
-        }
-      }
-      toast.info('Sync still running — check Logs.');
+      const res = await api.runAndAwait('plex/sync-ratings', {}, { timeoutMs: 120000 });
+      if (res?.ok) toast.success(`Sync done: ${res.written ?? 0} written, ${res.matched ?? 0} matched`);
+      else toast.error('Rating sync failed: ' + (res?.error || 'error'));
+      loadSyncStatus();
     } catch (e) { toast.error(e.message); }
     finally { setSyncing(false); }
   };
@@ -106,7 +93,9 @@ export default function Plex() {
   const doExport = async () => {
     setExporting(true);
     try {
-      const res = await api.plex.exportContent();
+      // Runs as a background job so the export shows progress/ETA in the
+      // ActivityDock and can be terminated from there.
+      const res = await api.runAndAwait('plex-export', {}, { timeoutMs: 10 * 60 * 1000 });
       if (!res?.ok) { toast.error(res?.error || 'Export failed'); return; }
       const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

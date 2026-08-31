@@ -121,9 +121,13 @@ def main():
     print("=== organize dry run ===")
     plan = organizer.plan_library(inv_a, lib_a, "{albumartist}/{album} ({year})",
                                   "{artist} - {album} - {track:02d} - {title}")
-    print(f"organize plan entries: {len(plan)} (expected 1: the unorganized file)")
+    print(f"organize plan entries: {len(plan)}")
     for p in plan:
         print("  ", p["source_name"], "->", os.path.relpath(p["destination"], lib_a))
+    # All 3 tracks render to a patterned path; the two same-identity tracks
+    # collide and must still both appear in the plan (executor renames).
+    assert len(plan) == 3, f"expected 3 planned moves, got {len(plan)}"
+    assert all("source_name" in p and "destination" in p for p in plan)
 
     print("=== in-library duplicates ===")
     groups = duplicates.detect_inventory(inv_a, "auto")

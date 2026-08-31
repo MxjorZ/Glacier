@@ -81,15 +81,20 @@ def sync_ratings(url, token, section_name, overwrite):
     ratings = pulled["ratings"]
     events.log(f"Plex: {len(ratings)} rated track(s) pulled from '{section_name}'", "info")
 
+    events.progress(0, len(settings["libraries"]), "Loading local index")
     index = _build_index(ext, excl)
+    events.progress(len(settings["libraries"]), len(settings["libraries"]),
+                    "Loading local index")
     written = 0
     matched = 0
     skipped = 0
     missed = 0
     errors = []
     logged = 0
+    total = len(ratings)
+    events.progress(0, total, "Writing ratings")
 
-    for rec in ratings:
+    for i, rec in enumerate(ratings):
         if is_cancelled():
             raise JobCancelled()
         tag_rating = map_rating(rec.get("rating") or 0)
@@ -99,7 +104,6 @@ def sync_ratings(url, token, section_name, overwrite):
         targets = index.get(key, []) if key[0] and key[2] else []
         if not targets:
             missed += 1
-            continue
         for tgt in targets:
             matched += 1
             if not overwrite and tgt["rating"] >= tag_rating:
@@ -114,6 +118,8 @@ def sync_ratings(url, token, section_name, overwrite):
                     logged += 1
             else:
                 errors.append({"path": tgt["path"], "error": res.get("error")})
+        if (i + 1) % 25 == 0 or i + 1 == total:
+            events.progress(i + 1, total, "Writing ratings")
 
     net = {"ok": True, "section": section_name,
            "pulled": len(ratings), "matched": matched, "written": written,

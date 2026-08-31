@@ -5,6 +5,7 @@ import os
 from collections import defaultdict
 
 from .. import events
+from ..cancel import is_cancelled, JobCancelled
 from ..library import metadata
 
 
@@ -27,7 +28,12 @@ def extract_covers(tracks, force=False, emit=True):
     created = 0
     errors = []
     albums = group_by_album(tracks)
+    total = len(albums)
+    if emit:
+        events.progress(0, total, "Extracting covers")
     for i, (folder, group) in enumerate(albums.items()):
+        if is_cancelled():
+            raise JobCancelled()
         existing = [f for f in os.listdir(folder)
                     if f.lower() in ("cover.jpg", "cover.png", "folder.jpg", "folder.png")
                     and os.path.isfile(os.path.join(folder, f))]
@@ -70,8 +76,8 @@ def extract_covers(tracks, force=False, emit=True):
                         break
             except Exception as exc:  # noqa: BLE001
                 errors.append({"path": tr["path"], "error": str(exc)})
-        if emit and (i + 1) % 10 == 0:
-            events.progress(i + 1, len(albums), "Extracting covers")
+        if emit and ((i + 1) % 10 == 0 or i + 1 == total):
+            events.progress(i + 1, total, "Extracting covers")
     if emit and albums:
         events.progress(len(albums), len(albums), "Extracting covers")
     return created, errors
@@ -88,7 +94,12 @@ def generate_playlists(tracks, emit=True):
     created = 0
     errors = []
     albums = group_by_album(tracks)
+    total = len(albums)
+    if emit:
+        events.progress(0, total, "Generating playlists")
     for i, (folder, group) in enumerate(albums.items()):
+        if is_cancelled():
+            raise JobCancelled()
         try:
             def track_key(tr):
                 raw = tr.get("tags", {}).get("track", "")
@@ -108,8 +119,8 @@ def generate_playlists(tracks, emit=True):
             created += 1
         except Exception as exc:  # noqa: BLE001
             errors.append({"path": folder, "error": str(exc)})
-        if emit and (i + 1) % 10 == 0:
-            events.progress(i + 1, len(albums), "Generating playlists")
+        if emit and ((i + 1) % 10 == 0 or i + 1 == total):
+            events.progress(i + 1, total, "Generating playlists")
     if emit and albums:
         events.progress(len(albums), len(albums), "Generating playlists")
     return created, errors

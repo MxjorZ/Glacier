@@ -11,17 +11,6 @@ import { Confirm } from '../../components/dialog-helpers.jsx';
 import { toast } from '../../toast.jsx';
 import { cn } from '@/lib/utils.js';
 
-async function runGenreJob(startResp) {
-  const jid = startResp?.job?.id;
-  for (let i = 0; i < 120; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    const hist = await api.get('/api/jobs/history');
-    const j = (hist.jobs || []).find((x) => (jid == null || x.id === jid) && x.status !== 'running');
-    if (j) return j.result;
-  }
-  return { ok: false, error: 'Timed out waiting for genre job' };
-}
-
 export default function GenreManager() {
   const [libs, setLibs] = useState([]);
   const [libId, setLibId] = useState('');
@@ -62,12 +51,11 @@ export default function GenreManager() {
     setConfirming(false);
     setBusy(true);
     try {
-      let startRes;
-      if (op === 'replace') startRes = await api.genreOps('replace', { library_id: libId, from: sel?.genre, to: replaceTo });
-      else if (op === 'merge') startRes = await api.genreOps('merge', { library_id: libId, from: [...mergeSel], to: mergeTo });
-      else if (op === 'delete') startRes = await api.genreOps('delete', { library_id: libId, genre: sel?.genre });
-      else if (op === 'bulk') startRes = await api.genreOps('bulk-set', { library_id: libId, value: bulkValue });
-      const res = await runGenreJob(startRes);
+      let res;
+      if (op === 'replace') res = await api.runAndAwait('genres/replace', { library_id: libId, from: sel?.genre, to: replaceTo });
+      else if (op === 'merge') res = await api.runAndAwait('genres/merge', { library_id: libId, from: [...mergeSel], to: mergeTo });
+      else if (op === 'delete') res = await api.runAndAwait('genres/delete', { library_id: libId, genre: sel?.genre });
+      else if (op === 'bulk') res = await api.runAndAwait('genres/bulk-set', { library_id: libId, value: bulkValue });
       if (res?.ok) toast.success(`${res.applied} track(s) updated in ${res.library}`);
       else toast.error(res?.error || 'Operation failed');
       await refresh();

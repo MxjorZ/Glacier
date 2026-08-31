@@ -32,6 +32,7 @@ export default function Libraries() {
   const [extErr, setExtErr] = useState('');
   const [extName, setExtName] = useState("");
   const [extPath, setExtPath] = useState("");
+  const [extPicker, setExtPicker] = useState(false);
   const [extScript, setExtScript] = useState("");
   const [extGenre, setExtGenre] = useState("");
   const [extArtists, setExtArtists] = useState("");
@@ -61,9 +62,12 @@ export default function Libraries() {
     else toast.error(res.error || "Dry-run failed");
   };
   const applyExtract = async () => {
+    // Send the confirmed dry-run plan so the backend executes exactly what
+    // was previewed (no second full scan, no drift between preview and apply).
     const res = await api.extractMove({
       name: extName, path: extPath, filters: buildFilters(),
       source_library_ids: extSources, dry_run: false, confirm: true,
+      plan: extPreview?.plan,
     });
     if (res?.ok) {
       toast.success(`Created "${res.library?.name}" and moved ${res.moved} files`);
@@ -325,7 +329,12 @@ export default function Libraries() {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Destination path (folder will be created) <span className="text-destructive">*</span></label>
-              <Input value={extPath} onChange={(e) => setExtPath(e.target.value)} placeholder="C:\Music\Hebrew" className="font-mono text-xs" />
+              <div className="flex gap-2">
+                <Input value={extPath} onChange={(e) => setExtPath(e.target.value)} placeholder="C:\Music\Hebrew" className="font-mono text-xs flex-1" />
+                <Button variant="outline" size="sm" onClick={() => setExtPicker(true)}>
+                  <Folder className="size-4" /> Browse
+                </Button>
+              </div>
               <p className="text-[10px] text-muted-foreground">Required — the matching files will move here.</p>
             </div>
           </div>
@@ -410,6 +419,11 @@ export default function Libraries() {
         setPicker(false);
         if (list.length === 1) setNewPath(list[0]);
         else addMany(list);
+      }} />
+
+      <FileExplorer open={extPicker} onClose={() => setExtPicker(false)} onSelect={(p) => {
+        setExtPath(p);
+        setExtPicker(false);
       }} />
 
       <Modal open={newPath !== ""} onClose={() => setNewPath("")} title="Confirm Library Path" width="max-w-md">

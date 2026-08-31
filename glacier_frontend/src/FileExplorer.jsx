@@ -28,9 +28,16 @@ function buildCrumbs(p) {
 const FILE_PAGE = 400;
 const pageStyles = { height: 'calc(100vh - 12rem)', minHeight: '22rem' };
 
-// Native-style file explorer for picking library folder(s): near-fullscreen
-// grid + list view, breadcrumb hierarchy, song counts, search/sort, and a
-// load-more pagination.
+// Native-style file explorer for picking library folder(s) or file(s):
+// near-fullscreen grid + list view, breadcrumb hierarchy, song counts,
+// search/sort, and a load-more pagination.
+//
+// Props:
+//   open, onClose      — dialog lifecycle
+//   onSelect(primaryPath, allPaths) — confirmed selection; folders by default
+//   mode='folder'|'file' — what kind of entry can be confirmed (default folder)
+//   audioOnly=false    — hide non-audio files entirely
+//   multiple=true      — allow multi-check confirmation
 //
 // Selection model (deliberate -- no accidental single-click picks):
 //   - A single click on an item does NOT select it.
@@ -38,11 +45,11 @@ const pageStyles = { height: 'calc(100vh - 12rem)', minHeight: '22rem' };
 //     or the "Select all" checkbox to select everything in the current listing.
 //   - Double-click a FOLDER to open (navigate) into it -- the loading spinner
 //     you see is the folder being read.
-//   - Press "Confirm selection" to apply the checked folder(s).
-//   - onSelect(primaryPath, allPaths): primaryPath is a single path for
-//     backward compatibility (Tags uses it); allPaths is the array of selected
-//     folder paths (falls back to the current folder when nothing is checked).
-export default function FileExplorer({ open, onClose, onSelect }) {
+//   - Press "Confirm selection" to apply the checked folder(s)/file(s).
+//   - onSelect(primaryPath, allPaths): primaryPath is the first checked entry;
+//     allPaths is the array of checked entries (falls back to the current
+//     folder in folder mode when nothing is checked).
+export default function FileExplorer({ open, onClose, onSelect, mode = 'folder', audioOnly = false, multiple = true }) {
   const [path, setPath] = useState('');
   const [entries, setEntries] = useState(null);
   const [error, setError] = useState('');
@@ -50,10 +57,14 @@ export default function FileExplorer({ open, onClose, onSelect }) {
   const [checked, setChecked] = useState([]);       // paths (checklist)
   const [view, setView] = useState('grid');          // grid | list
   const [sortMode, setSortMode] = useState('name');  // name | size | audio
-  const [audioOnly, setAudioOnly] = useState(false);
+  const [filterAudio, setFilterAudio] = useState(false);
   const [query, setQuery] = useState('');
   const [filePage, setFilePage] = useState(FILE_PAGE);
   const [focusIdx, setFocusIdx] = useState(0);
+
+  // The external audioOnly prop forces the filter on (e.g. the Audio Quality
+  // Analyzer passes audioOnly so only media files are confirmable).
+  const audioFilter = audioOnly || filterAudio;
 
   const load = useCallback((p) => {
     setBusy(true);
@@ -76,8 +87,8 @@ export default function FileExplorer({ open, onClose, onSelect }) {
 
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const wantDir = (d) => !q || d.name.toLowerCase().includes(q);
-    const wantFile = (f) => (audioOnly ? f.audio : true) && (!q || f.name.toLowerCase().includes(q));
+    const wantDir = (d) => (mode === 'folder' || !audioFilter) && (!q || d.name.toLowerCase().includes(q));
+    const wantFile = (f) => (audioFilter ? f.audio : true) && (!q || f.name.toLowerCase().includes(q));
     const ds = dirs.filter(wantDir).map((d) => ({ ...d, kind: 'dir' }));
     const fs = files.filter(wantFile).map((f) => ({ ...f, kind: 'file' }));
     const cmp = (a, b) => {
@@ -88,13 +99,16 @@ export default function FileExplorer({ open, onClose, onSelect }) {
     ds.sort(cmp);
     fs.sort(cmp);
     return [...ds, ...fs];
-  }, [dirs, files, query, audioOnly, sortMode]);
+  }, [dirs, files, query, audioFilter, sortMode, mode]);
 
   const gridItems = useMemo(() => items.slice(0, filePage), [items, filePage]);
 
   // --- checklist helpers -------------------------------------------------
   const isChecked = (p) => checked.includes(p);
-  const toggle = (p) => setChecked((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]));
+  const toggle = (p) => setChecked((cur) => {
+    if (!multiple) return cur.includes(p) ? [] : [p];
+    return cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p];
+  });
 
   const visiblePaths = gridItems.map((it) => it.path);
   const allChecked = visiblePaths.length > 0 && visiblePaths.every((p) => checked.includes(p));
@@ -106,20 +120,23 @@ export default function FileExplorer({ open, onClose, onSelect }) {
     });
   };
 
-  // Folders among the current listing that are checked.
-  const checkedDirs = useMemo(
-    () => items.filter((it) => it.kind === 'dir' && isChecked(it.path)).map((it) => it.path),
-    [items, checked], // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  // Confirmed entries follow the mode: files must be checked explicitly in
+  // file mode; folder mode still falls back to the current folder.
+  const confirmable = items.filter((it) => isChecked(it.path));
+  const checkedDirs = confirmable.filter((it) => it.kind === 'dir').map((it) => it.path);
+  const checkedFiles = confirmable.filter((it) => it.kind === 'file').map((it) => it.path);
 
   const openDir = (p) => { if (p && p !== path) load(p); };
   const goUp = () => { if (crumbs.length > 1) load(crumbs[crumbs.length - 2].path); };
 
   const selectFolder = () => {
-    // Confirmation: use the checked folder(s), or the currently-open folder.
-    const paths = checkedDirs.length ? checkedDirs : [path];
-    const primary = paths[0];
-    onSelect(primary, paths);
+    if (mode === 'file') {
+      if (!checkedFiles.length) return;
+      onSelect(checkedFiles[0], checkedFiles);
+    } else {
+      const paths = checkedDirs.length ? checkedDirs : [path];
+      onSelect(paths[0], paths);
+    }
     onClose();
   };
 
@@ -181,9 +198,9 @@ export default function FileExplorer({ open, onClose, onSelect }) {
               <SelectItem value="audio">Songs</SelectItem>
             </SelectContent>
           </Select>
-          <button onClick={() => setAudioOnly((v) => !v)}
+          <button onClick={() => setFilterAudio((v) => !v)}
             className={cn('flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs',
-              audioOnly ? 'border-primary bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-accent')}>
+              audioFilter ? 'border-primary bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-accent')}>
             <Music className="size-3.5" /> Audio only
           </button>
           <div className="flex shrink-0 rounded-lg border p-0.5">
@@ -252,6 +269,7 @@ export default function FileExplorer({ open, onClose, onSelect }) {
           {/* Selection / details box on the side */}
           <DetailsPanel currentPath={path} audioTotal={audioTotal}
             checkedCount={checked.length} checkedDirs={checkedDirs}
+            checkedFiles={checkedFiles} mode={mode}
             onOpen={() => openDir(path)} onSelectFolder={selectFolder} />
         </div>
       </DialogContent>
@@ -316,11 +334,17 @@ function Row({ it, checked, focused, onToggle, onOpen }) {
 }
 
 // Right-hand selection/details box. It reflects the checklist state and is
-// where you confirm the selected folder(s).
-function DetailsPanel({ currentPath, audioTotal, checkedCount, checkedDirs, onOpen, onSelectFolder }) {
-  const label = checkedDirs.length > 0
-    ? `${checkedDirs.length} folder${checkedDirs.length === 1 ? '' : 's'} selected`
-    : (checkedCount > 0 ? `${checkedCount} item(s) selected` : 'No folder selected — current folder will be used');
+// where you confirm the selected entries.
+function DetailsPanel({ currentPath, audioTotal, checkedCount, checkedDirs,
+                        checkedFiles, mode, onOpen, onSelectFolder }) {
+  const label = mode === 'file'
+    ? (checkedFiles.length > 1
+        ? `${checkedFiles.length} files selected`
+        : checkedFiles.length === 1 ? '1 file selected' : 'No file selected — check one to confirm')
+    : (checkedDirs.length > 0
+        ? `${checkedDirs.length} folder${checkedDirs.length === 1 ? '' : 's'} selected`
+        : (checkedCount > 0 ? `${checkedCount} item(s) selected` : 'No folder selected — current folder will be used'));
+  const disabled = mode === 'file' && checkedFiles.length === 0;
   return (
     <div className="flex w-64 shrink-0 flex-col rounded-lg border bg-card/40 p-3 text-xs">
       <div className="mb-2 font-semibold uppercase tracking-wide text-muted-foreground">Selection</div>
@@ -332,7 +356,8 @@ function DetailsPanel({ currentPath, audioTotal, checkedCount, checkedDirs, onOp
       <div className="mt-3 space-y-1.5">
         <div className="flex justify-between gap-2"><span className="text-muted-foreground">Checked</span><span className="font-mono">{checkedCount}</span></div>
         {audioTotal != null && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Songs here</span><span className="font-mono">{audioTotal}</span></div>}
-        <p className={cn('rounded bg-muted/50 p-1.5 text-[10px] leading-relaxed', checkedDirs.length ? 'text-primary' : 'text-muted-foreground')}>
+        <p className={cn('rounded bg-muted/50 p-1.5 text-[10px] leading-relaxed',
+          (mode === 'file' ? checkedFiles.length : checkedDirs.length) ? 'text-primary' : 'text-muted-foreground')}>
           {label}
         </p>
       </div>
@@ -341,12 +366,14 @@ function DetailsPanel({ currentPath, audioTotal, checkedCount, checkedDirs, onOp
         <Button size="sm" variant="outline" onClick={onOpen} className="w-full">
           <FolderOpen className="size-4" /> Open current folder
         </Button>
-        <Button size="sm" onClick={onSelectFolder} className="w-full">
+        <Button size="sm" onClick={onSelectFolder} disabled={disabled} className="w-full">
           <Check className="size-4" /> Confirm selection
         </Button>
       </div>
       <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-        Single-click does nothing — check folders with the box, double-click a folder to open it, then confirm.
+        {mode === 'file'
+          ? 'Check a file with the box, double-click a folder to open it, then confirm.'
+          : 'Single-click does nothing — check folders with the box, double-click a folder to open it, then confirm.'}
       </p>
     </div>
   );

@@ -18,25 +18,38 @@ from ..library import metadata
 
 REQUIRED_TAGS = ["artist", "title"]
 
+# Single source of truth for "what counts as audio" in this module.
+AUDIO_EXTS = {e.lower() for e in metadata._FORMAT_BY_EXT}
+
 
 def find_empty_folders(root, excluded):
-    """Find folders that contain no audio files (recursively)."""
+    """Find folders that contain no audio files (recursively).
+
+    Reports only leaf-level empty folders so parents with one empty child
+    aren't double-counted; computed with a single pass instead of the old
+    O(N²) commonpath comparison.
+    """
     excluded_lower = {e.lower() for e in excluded if e}
     empty = []
-    for dirpath, dirnames, filenames in os.walk(root):
+    empty_set = set()
+    # Walk bottom-up so children are classified before their parents: a folder
+    # is "empty" when it has no audio AND every subfolder is empty too. Only
+    # leaves are reported (parents are skipped, not double-counted).
+    for dirpath, dirnames, filenames in os.walk(root, topdown=False):
         if is_cancelled():
             raise JobCancelled()
         dirnames[:] = [d for d in dirnames
                        if d.lower() not in excluded_lower and not d.startswith(".")]
         has_audio = any(
-            os.path.splitext(f)[1].lower() in {".flac", ".mp3", ".ogg", ".m4a", ".opus", ".wma"}
+            os.path.splitext(f)[1].lower() in AUDIO_EXTS
             for f in filenames
         )
-        if not has_audio and dirpath != root:
-            empty.append(dirpath)
-    # Only report deepest-empty folders; skip parents that contain an empty child.
-    empty = [d for d in empty if not any(
-        os.path.commonpath([d, e]) == d and d != e for e in empty)]
+        child_has_audio = any(
+            os.path.join(dirpath, d) not in empty_set for d in dirnames)
+        if not has_audio and not child_has_audio:
+            empty_set.add(dirpath)
+            if dirpath != root:
+                empty.append(dirpath)
     return empty
 
 
@@ -44,7 +57,8 @@ def apply_remove_dirs(dirs):
     """Remove a list of empty directories (leaves only). Returns (ok, removed, errors)."""
     removed = 0
     errors = []
-    for d in sorted(dirs, key=len, reverse=True):
+    total = len(dirs)
+    for i, d in enumerate(sorted(dirs, key=len, reverse=True)):
         if is_cancelled():
             raise JobCancelled()
         try:
@@ -53,6 +67,10 @@ def apply_remove_dirs(dirs):
                 removed += 1
         except OSError as exc:
             errors.append({"path": d, "error": str(exc)})
+        if (i + 1) % 25 == 0:
+            events.progress(i + 1, total, "Removing empty folders")
+    if total:
+        events.progress(total, total, "Removing empty folders")
     return removed, errors
 
 
@@ -86,9 +104,10 @@ def find_dup_folders(tracks, root):
 
     shells = []
     for dirpath, dirnames, filenames in os.walk(root):
-        # REMOVED the line: dirnames[:] = []   <-- FIXED: now recurses into subfolders
+        if is_cancelled():
+            raise JobCancelled()
         audio_here = any(
-            os.path.splitext(f)[1].lower() in {".flac", ".mp3", ".ogg", ".m4a", ".opus", ".wma"}
+            os.path.splitext(f)[1].lower() in AUDIO_EXTS
             for f in filenames
         )
         if audio_here:

@@ -32,6 +32,7 @@ from .reports import exporter
 from .plex import client as plex_client
 from .plex import sync as plex_sync
 from . import mover
+from .cancel import is_cancelled, JobCancelled
 
 
 def _libs():
@@ -65,6 +66,9 @@ def _volatile(**kw):
 # --- Operation callbacks (run inside the job supervisor) ----------------
 
 def op_analyze(library_ids=None):
+    """Scan libraries. Incremental: unchanged files are served from the
+    inventory cache; only new/modified files are re-read (the old behavior
+    forced a full re-read of every file on every scan)."""
     settings = store.get()
     libs = _libs()
     if library_ids:
@@ -73,16 +77,17 @@ def op_analyze(library_ids=None):
         libs = _enabled_libs()
     if not libs:
         raise ValueError("No libraries configured")
+    events.progress(0, len(libs), "Scanning libraries")
     per_library = {}
     all_tracks = []
     ext = settings["extensions"]
     excl = settings["excluded_folders"]
-    for lib in libs:
+    for i, lib in enumerate(libs):
         if not os.path.isdir(lib["path"]):
             events.log(f"Skipping missing path: {lib['path']}", "warning")
             per_library[lib["id"]] = {"error": "missing path"}
             continue
-        tracks = scanner.scan_library(lib, ext, excl, emit=True, use_cache=False)
+        tracks = scanner.scan_library(lib, ext, excl, emit=True, use_cache=True)
         all_tracks.extend(tracks)
         st = scanner.build_library_stats(tracks)
         per_library[lib["id"]] = {
@@ -96,10 +101,12 @@ def op_analyze(library_ids=None):
             "tracks": len(tracks),
             "errors": st["errors"],
         })
+        events.progress(i + 1, len(libs), "Scanning libraries")
     totals = scanner.build_library_stats(all_tracks)
     events.log(
         f"Analysis complete: {totals['tracks']} tracks across {len(libs)} libraries",
         "success")
+    browser.invalidate_counts()
     return {"ok": True, "libraries": per_library, "total": totals}
 
 
@@ -134,12 +141,16 @@ def op_quick_scan(library_ids=None):
             errors_store.store.report_exception(
                 f"Quick scan failed for '{lib['name']}'", module="scanner")
             per_library[lib["id"]] = {"error": str(exc)}
-    total_new = sum(1 for r in per_library.values() if isinstance(r, dict)
-                    and not r.get("full_scan") for _ in r.get("new", []))
+    total_new = sum(len(r.get("new", [])) for r in per_library.values()
+                    if isinstance(r, dict))
+    total_deleted = sum(len(r.get("deleted", [])) for r in per_library.values()
+                         if isinstance(r, dict))
     events.log(
-        f"Quick scan complete: {total_new} new file(s) across {len(libs)} libraries",
-        "success")
-    return {"ok": True, "libraries": per_library}
+        f"Quick scan complete: {total_new} new, {total_deleted} removed "
+        f"across {len(libs)} libraries", "success")
+    browser.invalidate_counts()
+    return {"ok": True, "libraries": per_library, "total_new": total_new,
+            "total_deleted": total_deleted}
 
 
 def op_startup_scan():
@@ -155,13 +166,10 @@ def _library_tracks(library_id, settings, force=False):
     if not lib:
         raise ValueError("Unknown library")
     lib_settings = settings or store.get()
-    if force:
-        tracks = scanner.scan_library(
-            lib, lib_settings["extensions"], lib_settings["excluded_folders"],
-            emit=False, use_cache=False)
-    else:
-        tracks = scanner.get_inventory(
-            lib, lib_settings["extensions"], lib_settings["excluded_folders"])
+    # force=True re-reads every file; the default is the incremental cache.
+    tracks = scanner.scan_library(
+        lib, lib_settings["extensions"], lib_settings["excluded_folders"],
+        emit=False, use_cache=True, force_reread=force)
     return lib, tracks
 
 
@@ -169,13 +177,13 @@ def _refresh_cache(lib):
     s = store.get()
     try:
         scanner.scan_library(lib, s["extensions"], s["excluded_folders"],
-                             emit=False, use_cache=False)
+                             emit=False, use_cache=True)
     except Exception:
         pass
 
 
 def op_genre_replace(library_id, from_genre, to_genre):
-    lib, tracks = _library_tracks(library_id, store.get(), force=True)
+    lib, tracks = _library_tracks(library_id, store.get())
     paths = [t["path"] for t in tracks]
     applied, skipped, errors = genre_ops.replace(paths, from_genre, to_genre)
     if applied:
@@ -187,7 +195,7 @@ def op_genre_replace(library_id, from_genre, to_genre):
 
 
 def op_genre_merge(library_id, from_genres, to_genre):
-    lib, tracks = _library_tracks(library_id, store.get(), force=True)
+    lib, tracks = _library_tracks(library_id, store.get())
     paths = [t["path"] for t in tracks]
     applied, skipped, errors = genre_ops.merge(paths, from_genres, to_genre)
     if applied:
@@ -199,7 +207,7 @@ def op_genre_merge(library_id, from_genres, to_genre):
 
 
 def op_genre_delete(library_id, genre):
-    lib, tracks = _library_tracks(library_id, store.get(), force=True)
+    lib, tracks = _library_tracks(library_id, store.get())
     paths = [t["path"] for t in tracks]
     applied, skipped, errors = genre_ops.delete(paths, genre)
     if applied:
@@ -211,7 +219,7 @@ def op_genre_delete(library_id, genre):
 
 
 def op_genre_bulk_set(library_id, value):
-    lib, tracks = _library_tracks(library_id, store.get(), force=True)
+    lib, tracks = _library_tracks(library_id, store.get())
     paths = [t["path"] for t in tracks]
     applied, skipped, errors = genre_ops.bulk_set(paths, value)
     if applied:
@@ -227,6 +235,16 @@ def op_genres_list(library_id):
     genres = genre_ops.collect(tracks)
     return {"ok": True, "library": lib["name"], "library_id": library_id,
             "genres": genres, "count": len(genres)}
+
+
+def op_tag_save(paths, field, value):
+    """Bulk tag write as a background job (progress + cancellable)."""
+    applied, errors = tag_editor.apply(paths, field, value)
+    # Tags changed on disk: the mtime changed, so the next scan re-reads them
+    # incrementally — no forced invalidation needed.
+    events.log(f"Tag '{field}' applied to {applied}/{len(paths)} file(s)", "success")
+    return {"ok": True, "applied": applied, "errors": errors,
+            "count": len(paths)}
 
 
 def op_tracks_page(library_id, page, per_page, sort="title", order="asc", query=""):
@@ -285,13 +303,17 @@ def op_organize(library_id, dry_run, confirm=False, plan=None):
     if not dry_run and not confirm:
         raise ValueError("Apply requires explicit confirmation (confirm=true)")
     settings = store.get()
-    
+
     if plan is not None:
         events.log(f"Executing pre‑computed plan for '{lib['name']}'", "info")
-        moved, errors = mover.execute_plan(plan, dry_run=False, backup=settings.get("backup_before_move", False))
+        moved, errors = mover.execute_plan(
+            plan, dry_run=False,
+            backup=settings.get("backup_before_move", False))
         events.log(f"Organized {moved} files in '{lib['name']}'", "success")
+        scanner.invalidate_cache(library_id)
+        browser.invalidate_counts()
         return {"ok": True, "dry_run": False, "moved": moved, "errors": errors, "count": len(plan)}
-    
+
     tracks = scanner.get_inventory(lib, settings["extensions"], settings["excluded_folders"])
     file_paths = [t['path'] for t in tracks if not t.get('error')]
     plan = mover.plan_files(
@@ -300,14 +322,18 @@ def op_organize(library_id, dry_run, confirm=False, plan=None):
         settings["naming_pattern"],
         lib["path"],
         skip_already_organized=True,
-        emit_progress=True
+        emit_progress=True,
+        library_name=lib["name"],
     )
     if dry_run:
         events.log(f"Organize dry‑run: {len(plan)} files would move", "info")
         return {"ok": True, "dry_run": True, "count": len(plan), "plan": plan}
-    
-    moved, errors = mover.execute_plan(plan, dry_run=False, backup=settings.get("backup_before_move", False))
+
+    moved, errors = mover.execute_plan(plan, dry_run=False,
+                                       backup=settings.get("backup_before_move", False))
     events.log(f"Organized {moved} files in '{lib['name']}'", "success")
+    scanner.invalidate_cache(library_id)
+    browser.invalidate_counts()
     return {"ok": True, "dry_run": False, "moved": moved, "errors": errors, "count": len(plan)}
 
 
@@ -321,7 +347,9 @@ def op_duplicates(library_id):
         raise ValueError("Unknown library")
     settings = store.get()
     tracks = scanner.get_inventory(lib, settings["extensions"], settings["excluded_folders"])
+    events.progress(0, len(tracks), f"Duplicates: {lib['name']}")
     groups = dup_mod.detect_inventory(tracks, settings["exclusivity"]["identity"])
+    events.progress(len(tracks), len(tracks), f"Duplicates: {lib['name']}")
     events.log(f"Duplicate scan '{lib['name']}': {len(groups)} groups", "success")
     return {"ok": True, "library_id": library_id, "library": lib["name"],
             "groups": groups, "count": len(groups)}
@@ -336,14 +364,21 @@ def op_exclusivity(library_ids=None):
     libs = _enabled_libs()
     if library_ids:
         libs = [l for l in libs if l["id"] in library_ids]
+    events.progress(0, len(libs), "Loading inventories")
     inventories = {}
-    for lib in libs:
+    for i, lib in enumerate(libs):
+        if is_cancelled():
+            raise JobCancelled()
         if os.path.isdir(lib["path"]):
             inventories[lib["id"]] = scanner.get_inventory(
                 lib, settings["extensions"], settings["excluded_folders"])
+        events.progress(i + 1, len(libs), "Loading inventories")
     mode = settings["exclusivity"]["identity"]
     pref = settings["exclusivity"].get("preferred_library_id", "")
+    total_tracks = sum(len(t) for t in inventories.values())
+    events.progress(0, total_tracks, "Comparing identities")
     violations = exclusivity.scan_violations(inventories, mode, pref)
+    events.progress(total_tracks, total_tracks, "Comparing identities")
     events.log(f"Exclusivity scan: {len(violations)} violations across libraries", "success")
     return {"ok": True, "violations": violations, "count": len(violations)}
 
@@ -356,15 +391,23 @@ def op_artist_exclusivity(library_ids=None):
         libs = _libs()
     if library_ids:
         libs = [l for l in libs if l["id"] in library_ids]
+    events.progress(0, len(libs), "Loading inventories")
     inventories = {}
-    for lib in libs:
+    for i, lib in enumerate(libs):
+        if is_cancelled():
+            raise JobCancelled()
         if os.path.isdir(lib["path"]):
             inventories[lib["id"]] = scanner.get_inventory(
                 lib, settings["extensions"], settings["excluded_folders"])
-    events.log(f"Artist scan: found {len(inventories)} libraries, total tracks across libraries: {sum(len(t) for t in inventories.values())}", "info")
+        events.progress(i + 1, len(libs), "Loading inventories")
+    events.log(f"Artist scan: found {len(inventories)} libraries, "
+               f"total tracks across libraries: {sum(len(t) for t in inventories.values())}", "info")
     exceptions = settings.get("artist_exclusivity_exceptions", [])
     exceptions = [e for e in exceptions if e and e.strip()]
+    total_tracks = sum(len(t) for t in inventories.values())
+    events.progress(0, total_tracks, "Grouping artists")
     groups = exclusivity.scan_artist_violations(inventories, exceptions)
+    events.progress(total_tracks, total_tracks, "Grouping artists")
     events.artist_exclusivity_report(len(groups))
     events.log(f"Artist exclusivity scan: {len(groups)} violation(s)", "success")
     return {"ok": True, "groups": groups, "count": len(groups)}
@@ -448,6 +491,11 @@ def op_artist_resolve(policy, preferred_library_id, dry_run, confirm=False, libr
         dry_run=False,
         backup=settings.get("backup_before_move", False)
     )
+    # Moves crossed libraries: drop cached inventories so the next scan sees
+    # the new locations instead of serving stale paths.
+    for lid in list(inventories.keys()) + [preferred_library_id]:
+        scanner.invalidate_cache(lid)
+    browser.invalidate_counts()
     events.log(f"Artist exclusivity applied: {moved} moved, {len(errors)} errors", "success")
     return {"ok": True, "dry_run": False, "acted": moved, "skipped": len(errors), "errors": errors}
 
@@ -627,15 +675,11 @@ def op_cleanup_apply(library_id, kind, paths, confirm=False):
     removed = 0
     errors = []
     if kind in ("empty", "dup_fold"):
-        total = len(paths)
-        for i, p in enumerate(paths):
-            r, err = cleaner.apply_remove_dirs([p])
-            removed += r
-            if err:
-                errors.extend(err)
-            if i % 10 == 0:
-                events.progress(i+1, total, f"Removing {kind}")
-        events.progress(total, total, "Cleanup complete")
+        if is_cancelled():
+            raise JobCancelled()
+        # One batched call — the old code re-sorted and re-logged the whole
+        # path list once per folder (O(N log N) per deletion).
+        removed, errors = cleaner.apply_remove_dirs(paths)
     events.log(f"Cleanup applied ({kind}): {removed} removed", "success")
     return {"ok": True, "removed": removed, "errors": errors}
 
@@ -708,7 +752,8 @@ def op_plex_export(url, token, section_name):
     return result
 
 
-def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=False):
+def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=False,
+                    plan=None):
     if not dry_run and not confirm:
         raise ValueError("Apply requires explicit confirmation (confirm=true)")
     name = (name or "").strip() or os.path.basename(path.rstrip("/\\"))
@@ -722,6 +767,25 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
     libs = _libs()
     if source_library_ids:
         libs = [l for l in libs if l["id"] in source_library_ids]
+
+    for lib in list(libs):
+        if os.path.abspath(lib["path"]).lower() == path.lower():
+            raise ValueError("Destination path must differ from source libraries")
+
+    # Reuse the dry-run plan when provided: the user confirmed exactly those
+    # moves, and it skips re-reading every source file a second time.
+    if plan is not None and not dry_run:
+        os.makedirs(path, exist_ok=True)
+        lib = store.add_library(name, path)
+        moved, errors = extract.execute_extract(plan, path)
+        for lid in (source_library_ids or []):
+            scanner.invalidate_cache(lid)
+        scanner.invalidate_cache(lib["id"])
+        browser.invalidate_counts()
+        events.log(f"Created library '{name}' and moved {moved} file(s)", "success")
+        return {"ok": True, "dry_run": False, "library": lib,
+                "moved": moved, "errors": errors, "count": len(plan)}
+
     inventories = {}
     for lib in libs:
         if not os.path.isdir(lib["path"]):
@@ -732,10 +796,6 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
             "path": lib["path"],
             "tracks": scanner.get_inventory(lib, ext, excl),
         }
-
-    for lib in list(libs):
-        if os.path.abspath(lib["path"]).lower() == path.lower():
-            raise ValueError("Destination path must differ from source libraries")
 
     plan = extract.plan_extract(inventories, filters, path)
     if dry_run:
@@ -748,10 +808,10 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
     os.makedirs(path, exist_ok=True)
     lib = store.add_library(name, path)
     moved, errors = extract.execute_extract(plan, path)
-    try:
-        scanner.scan_library(lib, ext, excl, emit=False, use_cache=False)
-    except Exception:
-        pass
+    for lid in (source_library_ids or []):
+        scanner.invalidate_cache(lid)
+    scanner.invalidate_cache(lib["id"])
+    browser.invalidate_counts()
     events.log(f"Created library '{name}' and moved {moved} file(s)", "success")
     return {"ok": True, "dry_run": False, "library": lib,
             "moved": moved, "errors": errors, "count": len(plan)}
@@ -762,6 +822,12 @@ def op_extract_move(name, path, filters, source_library_ids, dry_run, confirm=Fa
 # ======================================================================
 
 def op_import_folder(source_path, dest_library_id, preserve_structure=True, move=True):
+    """Import audio files from a source folder into a library.
+
+    ``move=False`` copies instead of moving; ``preserve_structure=False``
+    re-renders destinations from the configured patterns instead of keeping
+    the source folder layout (both flags were previously ignored).
+    """
     if not os.path.isdir(source_path):
         raise ValueError("Source path does not exist")
     lib = store.get_library(dest_library_id)
@@ -780,23 +846,42 @@ def op_import_folder(source_path, dest_library_id, preserve_structure=True, move
 
     audio_files = []
     for dirpath, dirnames, filenames in os.walk(source_path):
+        if is_cancelled():
+            raise JobCancelled()
         dirnames[:] = [d for d in dirnames if d.lower() not in excluded and not d.startswith(".")]
         for f in filenames:
             if os.path.splitext(f)[1].lower() in extensions:
                 audio_files.append(os.path.join(dirpath, f))
 
+    total = len(audio_files)
+    events.progress(0, total, "Importing")
     if not audio_files:
         events.log("No audio files found in source folder", "warning")
-        return {"ok": True, "moved": 0, "errors": []}
+        return {"ok": True, "moved": 0, "errors": [], "total": 0}
 
-    plan = mover.plan_files(audio_files, folder_pattern, naming_pattern, dest_root)
+    if preserve_structure:
+        # Keep the source's folder layout under the destination root.
+        plan = []
+        for src in audio_files:
+            rel = os.path.relpath(src, source_path)
+            dest = os.path.join(dest_root, rel)
+            if os.path.abspath(src) == os.path.abspath(dest):
+                continue
+            plan.append({'source': src, 'destination': dest,
+                         'source_name': os.path.basename(src)})
+    else:
+        plan = mover.plan_files(audio_files, folder_pattern, naming_pattern, dest_root,
+                                emit_progress=True, library_name=lib["name"])
     if not plan:
-        events.log("No files could be planned (no metadata?)", "warning")
-        return {"ok": True, "moved": 0, "errors": []}
+        events.log("No files could be planned", "warning")
+        return {"ok": True, "moved": 0, "errors": [], "total": total}
 
-    moved, errors = mover.execute_plan(plan, dry_run=False, backup=backup)
-    events.log(f"Import completed: {moved} files {'moved' if move else 'copied'}, {len(errors)} errors", "success")
-    return {"moved": moved, "errors": errors, "total": len(audio_files)}
+    moved, errors = mover.execute_plan(plan, dry_run=False, backup=backup, copy=not move)
+    events.log(f"Import completed: {moved} files {'moved' if move else 'copied'}, "
+               f"{len(errors)} errors", "success")
+    scanner.invalidate_cache(dest_library_id)
+    browser.invalidate_counts()
+    return {"ok": True, "moved": moved, "errors": errors, "total": total}
 
 
 # --- Job dispatch helper -------------------------------------------------
@@ -869,7 +954,7 @@ def register_routes(app):
 
     @app.get("/api/stats")
     def dashboard_stats():
-        settings = store.get()
+        # Pure cache read (in-memory) — no filesystem access, no re-stat.
         per = {}
         all_tracks = []
         for lib in _enabled_libs():
@@ -1235,11 +1320,6 @@ def register_routes(app):
         library_id = body.get("library_id")
         return _start("report", op_report, library_id)
 
-    @app.post("/api/run/combined-exclusivity")
-    def run_combined_exclusivity():
-        # Not implemented – will be added later
-        return jsonify({"ok": False, "error": "Not implemented"}), 501
-
     # --- Genre manager (Stage 4 #9) --------------------------------------
     @app.post("/api/genres")
     def genres_list():
@@ -1259,7 +1339,7 @@ def register_routes(app):
         if not library_id or not body.get("from") or not body.get("to"):
             return jsonify({"ok": False, "error": "library_id, from and to are required"}), 400
         return _start("genres", op_genre_replace, library_id, body["from"], body["to"],
-                      library=store.get_library(library_id)["name"])
+                      library=(store.get_library(library_id) or {}).get("name"))
 
     @app.post("/api/run/genres/merge")
     def run_genre_merge():
@@ -1268,7 +1348,7 @@ def register_routes(app):
         if not library_id or not body.get("from") or not body.get("to"):
             return jsonify({"ok": False, "error": "library_id, from (list) and to are required"}), 400
         return _start("genres", op_genre_merge, library_id, list(body["from"]), body["to"],
-                      library=store.get_library(library_id)["name"])
+                      library=(store.get_library(library_id) or {}).get("name"))
 
     @app.post("/api/run/genres/delete")
     def run_genre_delete():
@@ -1277,7 +1357,7 @@ def register_routes(app):
         if not library_id or not body.get("genre"):
             return jsonify({"ok": False, "error": "library_id and genre are required"}), 400
         return _start("genres", op_genre_delete, library_id, body["genre"],
-                      library=store.get_library(library_id)["name"])
+                      library=(store.get_library(library_id) or {}).get("name"))
 
     @app.post("/api/run/genres/bulk-set")
     def run_genre_bulk_set():
@@ -1286,7 +1366,7 @@ def register_routes(app):
         if not library_id:
             return jsonify({"ok": False, "error": "library_id is required"}), 400
         return _start("genres", op_genre_bulk_set, library_id, body.get("value", ""),
-                      library=store.get_library(library_id)["name"])
+                      library=(store.get_library(library_id) or {}).get("name"))
 
     # --- Large-scale tag editor pagination (Stage 4 #10) -----------------
     @app.post("/api/tracks")
@@ -1324,8 +1404,15 @@ def register_routes(app):
         value = body.get("value", "")
         if not field:
             return jsonify({"ok": False, "error": "field required"}), 400
-        applied, errors = tag_editor.apply(paths, field, value)
-        return jsonify({"ok": True, "applied": applied, "errors": errors})
+        if not paths:
+            return jsonify({"ok": False, "error": "paths required"}), 400
+        # Small batches stay synchronous; big ones go through the job
+        # supervisor so they get progress/ETA/cancel instead of hanging the
+        # HTTP request (and the browser) for minutes.
+        if len(paths) <= 50:
+            applied, errors = tag_editor.apply(paths, field, value)
+            return jsonify({"ok": True, "applied": applied, "errors": errors})
+        return _start("tags", op_tag_save, paths, field, value)
 
     # --- Plex --------------------------------------------------------
     @app.post("/api/plex/status")
@@ -1379,14 +1466,6 @@ def register_routes(app):
     def plex_export():
         url, token, section = _plex_creds(_json_body())
         return _start("plex-export", op_plex_export, url, token, section)
-
-    @app.post("/api/plex/export")
-    def plex_export_content():
-        url, token, section = _plex_creds(_json_body())
-        result = plex_client.export_library(url, token, section)
-        if not result.get("ok"):
-            return jsonify(result), 400
-        return jsonify(result)
 
     @app.get("/api/plex/sync-status")
     def plex_sync_status():
