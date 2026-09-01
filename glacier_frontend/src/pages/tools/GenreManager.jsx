@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Music2, RefreshCw, Replace, Merge, Eraser, Save } from 'lucide-react';
+import { Music2, RefreshCw, Replace, Merge, Eraser, Save, Search } from 'lucide-react';
 import { api } from '../../api.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card.jsx';
 import { Button } from '@/components/ui/button.jsx';
@@ -24,6 +24,7 @@ export default function GenreManager() {
   const [mergeTo, setMergeTo] = useState('');
   const [bulkValue, setBulkValue] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     api.settings().then((s) => {
@@ -46,6 +47,14 @@ export default function GenreManager() {
     try { const res = await api.genres(libId); setGenres(res?.genres || []); }
     catch (e) { toast.error(e.message); }
   };
+
+  const filteredGenres = genres.filter((g) => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    const inGenre = g.genre.toLowerCase().includes(q);
+    const inRaw = (g.examples || []).some(([raw]) => raw.toLowerCase().includes(q));
+    return inGenre || inRaw;
+  });
 
   const confirmRun = async () => {
     setConfirming(false);
@@ -86,18 +95,25 @@ export default function GenreManager() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <Select value={libId} onValueChange={setLibId}>
           <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
           <SelectContent>
             {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Button variant="outline" onClick={refresh} disabled={!libId || busy}><RefreshCw className={busy ? 'size-4 animate-spin' : 'size-4'} /> Refresh</Button>
+        <div className="relative min-w-56 flex-1">
+          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search genres (also matches full multi-genre tags)…" className="pl-8" />
+        </div>
+        <Button variant="outline" onClick={refresh} disabled={!libId || busy}>
+          <RefreshCw className={busy ? 'size-4 animate-spin' : 'size-4'} /> Refresh
+        </Button>
       </div>
 
       <div className="mb-4 grid grid-cols-3 gap-4">
-        <MiniStat label="Genres" value={genres.length} />
+        <MiniStat label="Genres" value={filteredGenres.length} />
         <MiniStat label="Tracks" value={summary.tracks} />
         <MiniStat label="Artists" value={summary.artists} />
       </div>
@@ -108,6 +124,11 @@ export default function GenreManager() {
           <CardDescription>Tap a genre (or several for merge) then choose an action below.</CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
+          <p className="mb-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+            Tracks with multiple genres (e.g. <span className="font-mono">Electronic - Deep House; Electronic - House</span>)
+            are grouped by their <span className="text-foreground">first (leftmost) genre</span> — here <span className="text-foreground">Electronic</span>.
+            Transform actions rewrite the whole genre tag for every matching track.
+          </p>
           {!libId ? <Empty text="Add a library first — this page groups the genres found in one library." /> :
            !loaded ? <Empty text="Loading…" /> :
            genres.length === 0 ? <Empty text="No genres found. Run a scan (Dashboard → Scan all) first." /> : (
@@ -117,13 +138,14 @@ export default function GenreManager() {
                   <TableRow>
                     <TableHead className="w-8" />
                     <TableHead>Genre</TableHead>
+                    <TableHead>Raw tag values grouped here</TableHead>
                     <TableHead className="text-right">Tracks</TableHead>
                     <TableHead className="text-right">Albums</TableHead>
                     <TableHead className="text-right">Artists</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {genres.map((g) => (
+                  {filteredGenres.map((g) => (
                     <TableRow key={g.genre}
                       className={cn('cursor-pointer', (op === 'merge' && mergeSel.has(g.genre)) ? 'bg-primary/10' : sel?.genre === g.genre ? 'bg-primary/5' : '')}
                       onClick={() => {
@@ -132,11 +154,29 @@ export default function GenreManager() {
                       }}>
                       <TableCell><input type="checkbox" readOnly checked={op === 'merge' ? mergeSel.has(g.genre) : sel?.genre === g.genre} /></TableCell>
                       <TableCell className="font-medium">{g.genre}</TableCell>
+                      <TableCell className="max-w-72">
+                        {(g.examples || []).length === 0 ? <span className="text-muted-foreground">—</span> : (
+                          <div className="flex flex-wrap gap-1">
+                            {g.examples.slice(0, 3).map(([raw, n]) => (
+                              <span key={raw} title={`${n} track(s)`}
+                                className="truncate rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                {raw}
+                              </span>
+                            ))}
+                            {g.examples.length > 3 && (
+                              <span className="text-[10px] text-muted-foreground">+{g.examples.length - 3} more</span>
+                            )}
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right font-mono">{g.tracks}</TableCell>
                       <TableCell className="text-right font-mono">{g.albums}</TableCell>
                       <TableCell className="text-right font-mono">{g.artists}</TableCell>
                     </TableRow>
                   ))}
+                  {filteredGenres.length === 0 && (
+                    <TableRow><TableCell colSpan={6} className="p-4 text-center text-muted-foreground">No genres match “{search}”.</TableCell></TableRow>
+                  )}
                 </TableBody>
               </Table>
             </div>

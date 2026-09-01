@@ -181,10 +181,51 @@ export function applyAnimations(settings) {
   root.setAttribute('data-anim-click', a.click === false ? 'off' : 'on');
 }
 
-// Apply theme + mode + accent + animations from a Glacier settings object.
+// Apply theme + mode + accent + animations + glass from a Glacier settings object.
 export function applySettingsTheme(settings) {
   const theme = settings?.theme || {};
   applyThemeMode(theme.mode || 'dark');
   applyTheme(theme.accent || 'cyan', theme.accent_custom);
   applyAnimations(settings);
+  applyGlass(settings?.glass || {});
 }
+
+// ---- Liquid glass customization -------------------------------------------
+// Maps the persisted glass settings to CSS variables on <html>. All values
+// are optional; anything missing falls back to the CSS defaults.
+export function applyGlass(g) {
+  const root = document.documentElement;
+  const glass = g || {};
+
+  if (glass.blur != null) {
+    root.style.setProperty('--glass-blur', `${Math.max(0, Math.min(64, Number(glass.blur) || 0))}px`);
+  }
+  if (glass.alpha != null) {
+    const a = Math.max(0, Math.min(1, Number(glass.alpha) || 0));
+    root.style.setProperty('--glass-alpha', String(a));
+    root.style.setProperty('--glass-alpha-strong', String(Math.min(1, a + 0.16)));
+  }
+  if (glass.saturation != null) {
+    root.style.setProperty('--glass-saturation', `${Math.max(100, Math.min(300, Number(glass.saturation) || 100))}%`);
+  }
+  if (glass.border != null) {
+    root.style.setProperty('--glass-border-alpha', String(Math.max(0, Math.min(0.5, Number(glass.border) || 0))));
+  }
+  if (glass.radius != null) {
+    const r = Math.max(0, Math.min(32, Number(glass.radius) || 0));
+    root.style.setProperty('--glass-radius', `${r}px`);
+    root.style.setProperty('--radius', `${Math.max(0, r - 4)}px`);
+  }
+  root.setAttribute('data-glass-ambience', glass.ambience === false ? 'off' : 'on');
+  root.setAttribute('data-glass-sheen', glass.sheen === false ? 'off' : 'on');
+}
+
+export const GLASS_DEFAULTS = {
+  blur: 24,
+  alpha: 0.62,
+  saturation: 160,
+  border: 0.14,
+  radius: 16,
+  ambience: true,
+  sheen: true,
+};

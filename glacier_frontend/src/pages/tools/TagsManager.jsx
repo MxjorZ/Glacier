@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, PencilLine, Save, Folder, ListMusic, ArrowUpDown, Search } from 'lucide-react';
+import { PencilLine, Save, ListMusic, ArrowUpDown, Search } from 'lucide-react';
 import { api } from '../../api.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card.jsx';
 import { Button } from '@/components/ui/button.jsx';
-import { Input, Textarea } from '@/components/ui/input.jsx';
+import { Input } from '@/components/ui/input.jsx';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select.jsx';
 import { PageHeader, Empty } from '../../components/PageHeader.jsx';
-import { FolderPicker } from '../tag-folder-picker.jsx';
 import { toast } from '../../toast.jsx';
 
 const FIELDS = [
@@ -15,22 +14,22 @@ const FIELDS = [
   { value: 'albumartist', label: 'Album artist' },
   { value: 'album', label: 'Album' },
   { value: 'genre', label: 'Genre' },
-  { value: 'year', label: 'Year' },
+  { value: 'date', label: 'Year / Date' },
   { value: 'track', label: 'Track number' },
   { value: 'rating', label: 'Rating (0–100)' },
-  { value: 'comment', label: 'Comment' },
+  { value: 'isrc', label: 'ISRC' },
 ];
 
+// Tags editor: library-first like the Genre Manager. Pick a library, search
+// (server-side), page through it, check tracks, write one field to the
+// selection. Large batches run as background jobs with progress/ETA.
 export default function Tags() {
-  const [paths, setPaths] = useState('');
   const [items, setItems] = useState([]);
-  const [picker, setPicker] = useState(false);
   const [field, setField] = useState('title');
   const [value, setValue] = useState('');
   const [sel, setSel] = useState(new Set());
   const [busy, setBusy] = useState(false);
 
-  // Stage 4 #10: large-scale library browser with pagination.
   const [libs, setLibs] = useState([]);
   const [libId, setLibId] = useState('');
   const [page, setPage] = useState(1);
@@ -39,33 +38,16 @@ export default function Tags() {
   const [sort, setSort] = useState('title');
   const [order, setOrder] = useState('asc');
   const [q, setQ] = useState('');
-  const [loadedLib, setLoadedLib] = useState(false);
-
-  // Local search filter for the loaded list
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    api.settings().then((s) => { setLibs(s.libraries || []); }).catch(() => {});
+    api.settings().then((s) => {
+      const l = s.libraries || [];
+      setLibs(l);
+      if (l.length) setLibId(l[0].id);
+    }).catch(() => {});
   }, []);
 
-  const pathList = () => paths.split(/[\r\n]+/).map((s) => s.trim()).filter(Boolean);
-
-  const load = async (p) => {
-    setBusy(true);
-    try {
-      const res = await api.tagRead(p || pathList());
-      setItems(res.items || []);
-      setSel(new Set((res.items || []).map((_, i) => i)));
-      setLoadedLib(false);
-      toast.success(`Loaded ${(res.items || []).length} files`);
-    } catch (e) {
-      toast.error(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Load a page of tracks from a library (Stage 4 #10).
   const browse = async () => {
     if (!libId) return;
     setBusy(true);
@@ -74,7 +56,6 @@ export default function Tags() {
       setItems(res.items || []);
       setTotal(res.total || 0);
       setSel(new Set((res.items || []).map((_, i) => i)));
-      setLoadedLib(true);
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -84,13 +65,6 @@ export default function Tags() {
   useEffect(() => {
     if (libId) browse(); // eslint-disable-line react-hooks/exhaustive-deps
   }, [libId, page, perPage, sort, order, q]);
-
-  const refreshCurrent = async () => {
-    if (loadedLib) await browse();
-    else await load(pathList());
-  };
-
-  useEffect(() => { if (items.length === 0 && !libId) load(); /* eslint-disable-line */ }, []);
 
   const toggle = (i) => {
     const next = new Set(sel);
@@ -103,15 +77,18 @@ export default function Tags() {
   };
 
   const apply = async () => {
-    const idx = items.map((_, i) => i).filter((i) => sel.has(i));
-    const selected = idx.map((i) => items[i].path);
+    const selected = items.map((_, i) => i).filter((i) => sel.has(i)).map((i) => items[i].path);
     if (!selected.length) return toast.warn('Select at least one track');
     setBusy(true);
     try {
       const res = await api.tagSave(selected, field, value);
-      toast.success(`Updated ${res.applied} file(s)`);
-      if (res.errors?.length) toast.error(`${res.errors.length} failed`);
-      await refreshCurrent();
+      if (res?.applied != null) {
+        toast.success(`Updated ${res.applied} file(s)`);
+        if (res.errors?.length) toast.error(`${res.errors.length} failed`);
+      } else if (res?.job) {
+        toast.info('Tagging started — watch the Activity Dock for progress');
+      }
+      await browse();
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -125,7 +102,6 @@ export default function Tags() {
     return String(v);
   };
 
-  // Filter items by search query (title, artist, album, genre)
   const filteredItems = items.filter((it) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.trim().toLowerCase();
@@ -138,33 +114,25 @@ export default function Tags() {
 
   return (
     <div>
-      <PageHeader title="Tags" description="Read and edit metadata on your files in batch.">
-        <Button variant="outline" onClick={() => setPicker(true)}>
-          <Folder className="size-4" /> Browse folder
-        </Button>
-        <Button onClick={() => load()} disabled={busy || pathList().length === 0}>
-          <FolderOpen className="size-4" /> Load
-        </Button>
-      </PageHeader>
+      <PageHeader title="Tags" description="Edit metadata across an entire library — search, page, select, apply." />
 
-      {/* Stage 4 #10: browse a whole library with pagination */}
       <Card className="mb-4">
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2"><ListMusic className="size-4 text-primary" /> Browse a library</CardTitle>
-          <CardDescription>Work through an entire library in pages — perfect for large collections.</CardDescription>
+          <CardDescription>Pick a library, search anything, edit tags in pages.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-3 pt-4">
           <div className="min-w-44 space-y-1.5">
             <label className="text-xs text-muted-foreground">Library</label>
             <Select value={libId} onValueChange={(v) => { setLibId(v); setPage(1); }}>
-              <SelectTrigger className="w-full"><SelectValue placeholder="None (manual paths)" /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Select a library" /></SelectTrigger>
               <SelectContent>
                 {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
           <div className="min-w-40 flex-1 space-y-1.5">
-            <label className="text-xs text-muted-foreground">Search ({total.toLocaleString?.() || total} tracks)</label>
+            <label className="text-xs text-muted-foreground">Search ({(total || 0).toLocaleString()} tracks)</label>
             <Input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Title / artist / album / genre…" />
           </div>
           <div className="min-w-32 space-y-1.5">
@@ -196,26 +164,10 @@ export default function Tags() {
         </CardContent>
       </Card>
 
-      <Card className="mb-4">
-        <CardHeader className="border-b">
-          <CardTitle>File paths</CardTitle>
-          <CardDescription>One file or folder per line. Folder lines are resolved to audio files.</CardDescription>
-        </CardHeader>
-        <CardContent className="pt-4">
-          <Textarea
-            value={paths}
-            onChange={(e) => setPaths(e.target.value)}
-            placeholder={'C:\\Music\\Album A\\\nC:\\Music\\Album B\\track.flac'}
-            rows={2}
-            className="font-mono text-xs"
-          />
-        </CardContent>
-      </Card>
-
       <Card>
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2"><PencilLine className="size-4 text-primary" /> Editing</CardTitle>
-          <CardDescription>{items.length} track(s) on this page{libId ? ` of ${total}` : ''} · {sel.size} selected</CardDescription>
+          <CardDescription>{items.length} track(s) on this page{libId ? ` of ${(total || 0).toLocaleString()}` : ''} · {sel.size} selected</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-4">
           <div className="flex flex-wrap items-end gap-3">
@@ -237,18 +189,17 @@ export default function Tags() {
             </Button>
           </div>
 
-          {/* Search filter for the loaded items */}
           <div className="flex items-center gap-2">
             <Search className="size-4 text-muted-foreground" />
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter loaded tracks by title, artist, album, or genre…"
+              placeholder="Filter the loaded page by title, artist, album, or genre…"
               className="max-w-md"
             />
           </div>
 
-          {items.length === 0 ? <Empty text="Load a path to begin editing tags." /> : (
+          {items.length === 0 ? <Empty text="Pick a library above to start editing tags." /> : (
             <div className="overflow-auto rounded-lg border">
               <table className="w-full text-sm">
                 <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
@@ -265,10 +216,10 @@ export default function Tags() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filteredItems.map((it, i) => {
+                  {filteredItems.map((it) => {
                     const originalIndex = items.indexOf(it);
                     return (
-                      <tr key={i} className={sel.has(originalIndex) ? 'bg-primary/5' : ''}>
+                      <tr key={it.path} className={sel.has(originalIndex) ? 'bg-primary/5' : ''}>
                         <td className="px-3 py-2">
                           <input type="checkbox" checked={sel.has(originalIndex)} onChange={() => toggle(originalIndex)} />
                         </td>
@@ -290,8 +241,6 @@ export default function Tags() {
           )}
         </CardContent>
       </Card>
-
-      <FolderPicker open={picker} onClose={() => setPicker(false)} onSelect={(p) => { setPaths((old) => (old ? old + '\n' : '') + p); setPicker(false); }} />
     </div>
   );
 }

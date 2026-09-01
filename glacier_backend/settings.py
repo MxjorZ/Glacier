@@ -94,6 +94,31 @@ def _normalize(raw):
     if anim.get("preset") not in ("minimal", "modern", "material", "smooth", "fast", "playful"):
         anim["preset"] = "modern"
 
+    # Liquid glass settings (tolerant upgrade + range guards).
+    glass = merged.setdefault("glass", {})
+    try:
+        glass["blur"] = max(0, min(64, int(glass.get("blur", 24))))
+    except (TypeError, ValueError):
+        glass["blur"] = 24
+    try:
+        glass["alpha"] = max(0.0, min(1.0, float(glass.get("alpha", 0.62))))
+    except (TypeError, ValueError):
+        glass["alpha"] = 0.62
+    try:
+        glass["saturation"] = max(100, min(300, int(glass.get("saturation", 160))))
+    except (TypeError, ValueError):
+        glass["saturation"] = 160
+    try:
+        glass["border"] = max(0.0, min(0.5, float(glass.get("border", 0.14))))
+    except (TypeError, ValueError):
+        glass["border"] = 0.14
+    try:
+        glass["radius"] = max(0, min(32, int(glass.get("radius", 16))))
+    except (TypeError, ValueError):
+        glass["radius"] = 16
+    glass["ambience"] = bool(glass.get("ambience", True))
+    glass["sheen"] = bool(glass.get("sheen", True))
+
     return merged
 
 

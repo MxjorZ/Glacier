@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Save, Server, SlidersHorizontal, FolderTree, ShieldAlert, Radio, Palette, Volume2, Loader2, CheckCircle2, XCircle, Sparkles, Settings2, FileText, FolderOpen, Tag } from 'lucide-react';
-import { api } from '../api.js';
-import { applySettingsTheme, applyAnimations, ANIM_PRESETS, ACCENTS, customAccentVars, parseAccentColor } from '../lib/themes.js';
+import { Save, Server, SlidersHorizontal, FolderTree, ShieldAlert, Radio, Palette, Volume2, Loader2, CheckCircle2, XCircle, Sparkles, Settings2, FileText, FolderOpen, Tag, Droplets } from 'lucide-react';
+import { api } from '../api';
+import { applySettingsTheme, applyAnimations, applyGlass, ANIM_PRESETS, ACCENTS, customAccentVars, parseAccentColor, GLASS_DEFAULTS } from '../lib/themes.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardAction } from '@/components/ui/card.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import { Input, Textarea } from '@/components/ui/input.jsx';
@@ -38,6 +38,7 @@ const CODE_SNIPPETS = [
 
 const NAV_ITEMS = [
   { id: 'general', label: 'General', Icon: Settings2 },
+  { id: 'appearance', label: 'Appearance', Icon: Palette },
   { id: 'naming', label: 'Naming', Icon: FileText },
   { id: 'filemanagement', label: 'File Management', Icon: FolderOpen },
   { id: 'metadata', label: 'Metadata', Icon: Tag },
@@ -72,6 +73,15 @@ export default function Settings({ settings, onSettings }) {
 
   const libs = s.libraries || [];
 
+  // Live glass preview: every slider change applies immediately so the user
+  // sees exactly what they're saving (no "save" needed to preview).
+  const glass = { ...GLASS_DEFAULTS, ...(s.glass || {}) };
+  const setGlass = (key, value) => {
+    const next = { ...glass, [key]: value };
+    setNested('glass', key, value);
+    applyGlass(next);
+  };
+
   const save = async () => {
     try {
       const res = await api.saveSettings({
@@ -93,6 +103,7 @@ export default function Settings({ settings, onSettings }) {
         sound_asset_complete: s.sound_asset_complete,
         theme: s.theme,
         animations: s.animations,
+        glass: s.glass,
       });
       if (res?.settings) { onSettings(res.settings); applySettingsTheme(res.settings); }
       toast.success('Settings saved');
@@ -271,6 +282,78 @@ export default function Settings({ settings, onSettings }) {
                       <SelectItem value="fast">Fast</SelectItem>
                     </SelectContent>
                   </Select>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* ===== APPEARANCE TAB ===== */}
+          {activeTab === 'appearance' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><Droplets className="size-4 text-primary" /> Liquid Glass</CardTitle>
+                  <CardDescription>Tune the glass materials — every change applies live until you press Save.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <GlassSlider label="Blur" hint="Backdrop blur strength"
+                    min={0} max={64} step={1} value={glass.blur}
+                    onChange={(v) => setGlass('blur', v)} fmt={(v) => `${v}px`} />
+                  <GlassSlider label="Transparency" hint="How see-through surfaces are (lower = more transparent)"
+                    min={0} max={1} step={0.02} value={glass.alpha}
+                    onChange={(v) => setGlass('alpha', v)} fmt={(v) => `${Math.round((1 - v) * 100)}% clear`} />
+                  <GlassSlider label="Saturation" hint="Color boost behind the glass"
+                    min={100} max={300} step={5} value={glass.saturation}
+                    onChange={(v) => setGlass('saturation', v)} fmt={(v) => `${v}%`} />
+                  <GlassSlider label="Edge glow" hint="Brightness of the glass border"
+                    min={0} max={0.5} step={0.01} value={glass.border}
+                    onChange={(v) => setGlass('border', v)} fmt={(v) => `${Math.round(v * 200)}%`} />
+                  <GlassSlider label="Corner radius" hint="Roundness of cards and menus"
+                    min={0} max={32} step={1} value={glass.radius}
+                    onChange={(v) => setGlass('radius', v)} fmt={(v) => `${v}px`} />
+
+                  <div className="flex flex-wrap gap-2 border-t pt-4">
+                    <label className="glass-surface flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm">
+                      <input type="checkbox" checked={!!glass.ambience}
+                        onChange={(e) => setGlass('ambience', e.target.checked)}
+                        className="size-4 accent-[var(--primary)]" />
+                      Ambient background <span className="text-xs text-muted-foreground">(drifting gradients behind the glass)</span>
+                    </label>
+                    <label className="glass-surface flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm">
+                      <input type="checkbox" checked={!!glass.sheen}
+                        onChange={(e) => setGlass('sheen', e.target.checked)}
+                        className="size-4 accent-[var(--primary)]" />
+                      Hover sheen <span className="text-xs text-muted-foreground">(light sweep on cards)</span>
+                    </label>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button variant="outline" size="sm"
+                      onClick={() => { setNested('glass', null); const d = { ...GLASS_DEFAULTS }; setS((prev) => ({ ...prev, glass: d })); applyGlass(d); }}>
+                      Reset to defaults
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Live preview panel */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Preview</CardTitle>
+                  <CardDescription>How surfaces will look with these values</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="glass glass-hover flex flex-wrap items-center gap-3 rounded-xl p-4">
+                    <Button size="sm">Primary button</Button>
+                    <Button size="sm" variant="outline">Outline</Button>
+                    <Button size="sm" variant="secondary">Secondary</Button>
+                    <span className="glass-surface rounded-full px-2.5 py-1 text-xs">A chip</span>
+                    <span className="glass-surface-strong rounded-lg px-2.5 py-1 text-xs">Menu surface</span>
+                  </div>
+                  <div className="glass-surface-strong max-w-56 rounded-xl p-1.5">
+                    <div className="rounded-lg px-3 py-2 text-sm">Dropdown item</div>
+                    <div className="rounded-lg bg-primary/15 px-3 py-2 text-sm text-primary">Highlighted item</div>
+                    <div className="rounded-lg px-3 py-2 text-sm">Dropdown item</div>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -520,6 +603,31 @@ export default function Settings({ settings, onSettings }) {
           <Button onClick={save}><Save className="size-4" /> Save changes</Button>
         </div>
       </div>
+    </div>
+  );
+}
+// Labeled glass-tuning slider with a live value readout. The fill amount is
+// mirrored into a CSS var so the track fills up to the thumb.
+function GlassSlider({ label, hint, min, max, step, value, onChange, fmt }) {
+  const pct = ((value - min) / (max - min)) * 100;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <div>
+          <span className="text-sm font-medium">{label}</span>
+          {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        </div>
+        <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-xs text-primary">
+          {fmt ? fmt(value) : value}
+        </span>
+      </div>
+      <input
+        type="range"
+        className="glass-slider w-full"
+        style={{ '--range-fill': `${pct}%` }}
+        min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
     </div>
   );
 }

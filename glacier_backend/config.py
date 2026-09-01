@@ -126,6 +126,17 @@ DEFAULT_SETTINGS = {
         "duration_ms": 220,
         "easing": "ease-out",
     },
+    # Liquid glass appearance (Settings → Appearance). All keys optional on
+    # the wire; the frontend falls back to its CSS defaults for anything missing.
+    "glass": {
+        "blur": 24,          # backdrop blur px (0..64)
+        "alpha": 0.62,       # surface opacity 0..1
+        "saturation": 160,   # backdrop saturation % (100..300)
+        "border": 0.14,      # glass edge brightness 0..0.5
+        "radius": 16,         # corner radius px (0..32)
+        "ambience": True,    # drifting gradient blobs behind the glass
+        "sheen": True,        # hover sheen sweep on cards
+    },
 }
 
 # Server identity exposed to the UI (LAN IP / hostname).

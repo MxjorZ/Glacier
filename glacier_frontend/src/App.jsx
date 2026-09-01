@@ -75,6 +75,8 @@ export default function App() {
 
   return (
     <div className="h-screen w-full overflow-hidden">
+      {/* Ambient gradient field — the glass surfaces blur this for depth. */}
+      <div className="ambience-layer" aria-hidden="true" />
       <Sidebar page={page} onNavigate={nav} />
       <TitleBar
         sys={sys}
@@ -83,7 +85,7 @@ export default function App() {
         onErrors={() => nav('errors')}
         onLogs={() => nav('logs')}
       />
-      <main className="main-content">
+      <main className="main-content relative z-10">
         <div className="mx-auto w-full max-w-7xl">
           {page === 'dashboard' && <Dashboard onNavigate={nav} />}
           {page === 'libraries' && <Libraries />}

@@ -25,6 +25,7 @@ from .settings import store
 from . import browser
 from .library import scanner, organizer, duplicates as dup_mod, exclusivity, extract
 from .library.exclusivity import normalize
+from .library import audio_analysis
 from .tags import editor as tag_editor
 from .tags import genres as genre_ops
 from .cleanup import cleaner
@@ -230,6 +231,19 @@ def op_genre_bulk_set(library_id, value):
             "skipped": skipped, "errors": errors}
 
 
+def op_audio_analyze(path):
+    """Decode + FFT one file and return waveform/spectrum/spectrogram data."""
+    events.log(f"Analyzing audio: {os.path.basename(path)}", "info")
+    events.progress(0, 1, "Decoding audio")
+    result = audio_analysis.analyze(path)
+    events.progress(1, 1, "Analysis complete")
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error", "Analysis failed"))
+    events.log(f"Audio analysis complete: {os.path.basename(path)} "
+               f"({result['duration']}s, up to {result['spectrum']['max_hz']} Hz)", "success")
+    return result
+
+
 def op_genres_list(library_id):
     lib, tracks = _library_tracks(library_id, store.get())
     genres = genre_ops.collect(tracks)
@@ -353,6 +367,61 @@ def op_duplicates(library_id):
     events.log(f"Duplicate scan '{lib['name']}': {len(groups)} groups", "success")
     return {"ok": True, "library_id": library_id, "library": lib["name"],
             "groups": groups, "count": len(groups)}
+
+
+def op_duplicates_resolve(library_id, policy, dry_run, confirm=False, quarantine_dir=None):
+    """Act on in-library duplicate groups.
+
+    Policies:
+      keep_best_quality — keep the highest-ranked format/bitrate copy per group
+      keep_newest       — keep the most recently modified copy per group
+    Losers move to the quarantine folder (~/.glacier_quarantine by default),
+    never deleted. Requires dry_run first + explicit confirm to apply.
+    """
+    if not dry_run and not confirm:
+        raise ValueError("Apply requires explicit confirmation (confirm=true)")
+    lib = store.get_library(library_id)
+    if not lib:
+        raise ValueError("Unknown library")
+    settings = store.get()
+    tracks = scanner.get_inventory(lib, settings["extensions"], settings["excluded_folders"])
+    groups = dup_mod.detect_inventory(tracks, settings["exclusivity"]["identity"])
+
+    quarantine = quarantine_dir or os.path.join(os.path.expanduser("~"),
+                                                ".glacier_quarantine")
+    plan = []
+    for g in groups:
+        cands = [t for t in g["tracks"] if not t.get("error")]
+        if len(cands) < 2:
+            continue
+        if policy == "keep_newest":
+            keep = max(cands, key=lambda t: t.get("mtime") or 0)
+        else:
+            keep = max(cands, key=lambda t: (exclusivity._quality(t),
+                                             t.get("bitrate") or 0,
+                                             t.get("size") or 0))
+        for t in cands:
+            if t is not keep:
+                plan.append({"source": t["path"], "destination":
+                             os.path.join(quarantine, os.path.basename(t["path"])),
+                             "identity": g["identity"]})
+
+    if dry_run:
+        return {"ok": True, "dry_run": True, "count": len(plan),
+                "plan": plan[:500], "total": len(plan)}
+
+    if not plan:
+        return {"ok": True, "dry_run": False, "acted": 0, "skipped": 0, "errors": []}
+
+    moved, errors = mover.execute_plan(
+        [{"source": p["source"], "destination": p["destination"]} for p in plan],
+        dry_run=False)
+    scanner.invalidate_cache(library_id)
+    browser.invalidate_counts()
+    events.log(f"Duplicate resolution: quarantined {moved} of {len(plan)} "
+               f"extra copies from '{lib['name']}'", "success")
+    return {"ok": True, "dry_run": False, "acted": moved,
+            "skipped": len(plan) - moved, "errors": errors}
 
 
 # ======================================================================
@@ -1066,6 +1135,27 @@ def register_routes(app):
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
 
+    @app.post("/api/audio-analyze")
+    def audio_analyze():
+        """Waveform + spectrum (0..22 kHz) + spectrogram for one file.
+
+        Decodes via ffmpeg and runs an FFT — heavy enough that it runs as a
+        job so the UI gets progress and can cancel a pathological decode.
+        """
+        body = _json_body()
+        path = body.get("path")
+        if not path:
+            return jsonify({"ok": False, "error": "Path is required"}), 400
+        if not os.path.exists(path):
+            return jsonify({"ok": False, "error": "File not found"}), 404
+        return _start("audio-analyze", op_audio_analyze, path)
+
+    @app.post("/api/audio-analysis-status")
+    def audio_analysis_status():
+        """Report whether ffmpeg is available for the analyzer UI."""
+        return jsonify({"ok": True,
+                        "ffmpeg": audio_analysis.ffmpeg_available()})
+
     # --- Settings -----------------------------------------------------
     @app.get("/api/settings")
     def get_settings():
@@ -1210,6 +1300,19 @@ def register_routes(app):
         if not library_id:
             return jsonify({"ok": False, "error": "library_id is required"}), 400
         return _start("duplicates", op_duplicates, library_id)
+
+    @app.post("/api/run/duplicates-resolve")
+    def run_duplicates_resolve():
+        body = _json_body()
+        library_id = body.get("library_id")
+        if not library_id:
+            return jsonify({"ok": False, "error": "library_id is required"}), 400
+        return _start("duplicates-resolve", op_duplicates_resolve,
+                      library_id,
+                      body.get("policy", "keep_best_quality"),
+                      bool(body.get("dry_run", True)),
+                      bool(body.get("confirm", False)),
+                      body.get("quarantine_dir"))
 
     @app.post("/api/run/exclusivity")
     def run_exclusivity():

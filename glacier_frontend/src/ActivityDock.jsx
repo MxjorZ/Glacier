@@ -262,7 +262,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
                   e.preventDefault();
                   e.stopPropagation();
                   setJobMenu({ id: j.id, x: e.clientX, y: e.clientY });
-                }} className="cursor-context-menu rounded-lg border bg-card/40 p-2 text-xs transition-all hover:border-primary hover:shadow-[0_0_20px_var(--primary)]">
+                }} className="glass-hover glass-surface cursor-context-menu rounded-lg p-2 text-xs transition-all hover:border-primary/40 hover:shadow-[0_0_20px_color-mix(in_srgb,var(--primary)_25%,transparent)]">
                   <div className="flex items-center gap-2">
                     <span className="flex-1 truncate font-medium">{j.operation}</span>
                     <span className="flex items-center gap-1.5 font-mono text-muted-foreground">
