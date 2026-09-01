@@ -201,7 +201,7 @@ export default function Plex() {
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2"><Search className="size-4 text-primary" /> Search</CardTitle>
-            <CardDescription>Find media on the server</CardDescription>
+            <CardDescription>Search tracks across your Plex server</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex gap-2">
@@ -224,7 +224,7 @@ export default function Plex() {
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2"><Columns2 className="size-4 text-primary" /> Duplicate detection</CardTitle>
-            <CardDescription>Find likely duplicate albums on the server</CardDescription>
+            <CardDescription>Report duplicate albums found on the server</CardDescription>
             <CardAction>
               <Button variant="outline" size="sm" onClick={loadDups} disabled={busy === 'dups'}>
                 <RefreshCw className="size-3.5" /> Scan
@@ -253,7 +253,7 @@ export default function Plex() {
       <Card className="mb-4">
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2"><Disc3 className="size-4 text-primary" /> Plex music libraries</CardTitle>
-          <CardDescription>Per-library counts reported by your Plex server itself.</CardDescription>
+          <CardDescription>Per-library counts straight from your Plex server.</CardDescription>
           <CardAction>
             <Button variant="outline" size="sm" onClick={loadLibStats} disabled={libStatsBusy}>
               <RefreshCw className={libStatsBusy ? 'size-3.5 animate-spin' : 'size-3.5'} /> Refresh
@@ -285,7 +285,7 @@ export default function Plex() {
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2"><Server className="size-4 text-primary" /> Load folders from Plex</CardTitle>
-            <CardDescription>Token + server URL is enough — list your Plex sections and add their on-disk folders as Glacier libraries.</CardDescription>
+            <CardDescription>List your Plex sections and add their on-disk folders as Glacier libraries.</CardDescription>
             <CardAction>
               <Button variant="outline" size="sm" onClick={loadSections} disabled={secBusy}>
                 <RefreshCw className={secBusy ? 'size-3.5 animate-spin' : 'size-3.5'} /> Load sections
@@ -326,7 +326,7 @@ export default function Plex() {
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2"><Radio className="size-4 text-primary" /> Export library data</CardTitle>
-            <CardDescription>Download your Plex music as JSON — artist / album / title / year / duration / rating / genre. Progress shows in the footer.</CardDescription>
+            <CardDescription>Export every track as JSON — artist, album, title, year, duration, rating, genre.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p className="text-xs text-muted-foreground">

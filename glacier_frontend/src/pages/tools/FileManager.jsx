@@ -30,6 +30,9 @@ export default function FileManager() {
   const [renameVal, setRenameVal] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [moveDest, setMoveDest] = useState('');
+  const [moveTreeDirs, setMoveTreeDirs] = useState([]);
+  const [moveTreeBusy, setMoveTreeBusy] = useState(false);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const { running, run } = useJob();
@@ -89,6 +92,26 @@ export default function FileManager() {
   });
 
   const checkedPaths = [...checked];
+
+  // Load the subfolder list for the move dialog (reuses list-dir).
+  const loadMoveTree = async (p) => {
+    setMoveTreeBusy(true);
+    try {
+      const d = await api.listDir(p || libRoot);
+      setMoveTreeDirs(d.dirs || []);
+      setMoveDest(d.path || libRoot);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setMoveTreeBusy(false);
+    }
+  };
+
+  const openMoveDialog = () => {
+    setMoveDest(path || libRoot);
+    loadMoveTree(path || libRoot);
+    setMoveOpen(true);
+  };
 
   const doRename = async () => {
     if (!renameTarget || !renameVal.trim()) return;
@@ -162,7 +185,7 @@ export default function FileManager() {
             </Button>
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" disabled={checked.size === 0 || running}
-                onClick={() => setMoveOpen(true)}>
+                onClick={openMoveDialog}>
                 <FolderInput className="size-3.5" /> Move {checked.size > 0 && `(${checked.size})`}
               </Button>
               <Button variant="destructive" size="sm" disabled={checked.size === 0 || running}
@@ -286,26 +309,55 @@ export default function FileManager() {
         </div>
       )}
 
-      {/* Move destination picker (simple: pick library + type a subfolder) */}
+      {/* Move destination: real folder browser inside the library */}
       {moveOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm anim-fade"
           onClick={() => setMoveOpen(false)}>
-          <div className="glass-surface-strong w-96 rounded-2xl p-4" onClick={(e) => e.stopPropagation()}>
+          <div className="glass-surface-strong flex max-h-[80vh] w-[28rem] flex-col rounded-2xl p-4" onClick={(e) => e.stopPropagation()}>
             <p className="mb-1 text-sm font-medium">Move {checked.size} item(s)</p>
-            <p className="mb-3 text-xs text-muted-foreground">Pick the destination library — items go to its root.</p>
-            <Select value={libId} onValueChange={() => {}}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name} — {l.path}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <div className="mt-3 flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setMoveOpen(false)}>Cancel</Button>
-              <Button size="sm" onClick={() => doMove(libRoot, true)} title="Copy instead of move">
-                <Copy className="size-3.5" /> Copy
+            <p className="mb-3 text-xs text-muted-foreground">Browse to any folder, then choose Move or Copy.</p>
+
+            {/* Folder navigator */}
+            <div className="mb-2 flex items-center gap-2">
+              <Button variant="ghost" size="icon-sm" title="Up one level"
+                onClick={() => {
+                  const parent = moveDest.split(/[\\/]/).slice(0, -1).join('\\') || libRoot;
+                  loadMoveTree(parent || libRoot);
+                }}>
+                <ArrowUp className="size-4" />
               </Button>
-              <Button size="sm" onClick={() => doMove(libRoot, false)}>
-                <FolderInput className="size-3.5" /> Move
+              <div className="glass-surface flex-1 truncate rounded-lg px-2.5 py-1.5 font-mono text-xs">
+                {moveDest || libRoot}
+              </div>
+              <Button variant="ghost" size="icon-sm" title="Refresh" onClick={() => loadMoveTree(moveDest)}>
+                <RefreshCw className="size-4" />
+              </Button>
+            </div>
+
+            <div className="mb-3 max-h-56 flex-1 overflow-auto rounded-xl border border-white/10 p-1">
+              {moveTreeBusy && <p className="flex items-center gap-2 p-3 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Reading folders…</p>}
+              {!moveTreeBusy && moveTreeDirs.length === 0 && (
+                <p className="p-3 text-center text-xs text-muted-foreground">No subfolders here.</p>
+              )}
+              {moveTreeDirs.map((d) => (
+                <button key={d.path} onDoubleClick={() => loadMoveTree(d.path)} onClick={() => setMoveDest(d.path)}
+                  className={cn('flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-all',
+                    moveDest === d.path ? 'bg-primary/15 text-primary' : 'hover:bg-white/5')}>
+                  <Folder className="size-4 shrink-0 text-amber-400/90" />
+                  <span className="truncate">{d.name}</span>
+                  {d.audio > 0 && <Badge variant="secondary" className="ml-auto font-mono text-[10px]">{d.audio}</Badge>}
+                </button>
+              ))}
+              <p className="px-2 pb-1 pt-2 text-[10px] text-muted-foreground">Click to select · double-click to open</p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setMoveOpen(false)}>Cancel</Button>
+              <Button size="sm" variant="outline" onClick={() => doMove(moveDest, true)} disabled={!moveDest}>
+                <Copy className="size-3.5" /> Copy here
+              </Button>
+              <Button size="sm" onClick={() => doMove(moveDest, false)} disabled={!moveDest}>
+                <FolderInput className="size-3.5" /> Move here
               </Button>
             </div>
           </div>

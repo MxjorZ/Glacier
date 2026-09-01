@@ -123,6 +123,18 @@ class Supervisor:
                 result = callback(*args, **kwargs)
                 self._finish(job, "complete", result)
                 record_operation("complete", result, job["end"] - job["start"])
+                # Structured completion line: every finished job logs its own
+                # outcome + duration, so the console always tells the story.
+                counts = ""
+                if isinstance(result, dict):
+                    for key in ("count", "moved", "acted", "created", "deleted",
+                                "applied", "removed", "written", "total_tracks"):
+                        if isinstance(result.get(key), int):
+                            counts += f" · {key.replace('_', ' ')}: {result[key]}"
+                events.log(
+                    f"Job #{job['id']} finished: {operation} "
+                    f"({job['end'] - job['start']:.1f}s{counts})",
+                    "success")
                 events.done("Operation complete", result)
                 events.job_state({**job, "running": False})
             except cancel.JobCancelled:
@@ -130,7 +142,10 @@ class Supervisor:
                           "cancelled": True}
                 self._finish(job, "cancelled", result)
                 record_operation("cancelled", result, job["end"] - job["start"])
-                events.log(f"Job '{operation}' terminated by user", "warning")
+                events.log(
+                    f"Job #{job['id']} cancelled: {operation} "
+                    f"after {job['end'] - job['start']:.1f}s",
+                    "warning")
                 events.done("Operation cancelled", result)
                 events.job_state({**job, "running": False, "status": "cancelled"})
             except Exception as exc:  # noqa: BLE001
@@ -139,7 +154,9 @@ class Supervisor:
                 record_operation("error", result, job["end"] - job["start"])
                 errors_store.store.report_exception(
                     f"Job '{operation}' failed", module="jobs", job_id=job["id"])
-                events.log(f"Job '{operation}' failed: {exc}", "error")
+                events.log(
+                    f"Job #{job['id']} failed: {operation} — {exc}",
+                    "error")
                 events.error(str(exc), job_id=job["id"])
                 events.done(f"Operation failed: {exc}", result)
                 events.job_state({**job, "running": False})

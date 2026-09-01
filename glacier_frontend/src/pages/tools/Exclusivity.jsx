@@ -123,7 +123,7 @@ export default function Exclusivity() {
           <Card>
             <CardHeader className="border-b">
               <CardTitle className="flex items-center gap-2"><ShieldAlert className="size-4 text-primary" /> Library exclusivity</CardTitle>
-              <CardDescription>Ensure each track exists in only one library</CardDescription>
+              <CardDescription>Ensure each track exists in only one library.</CardDescription>
               <CardAction>
                 <Button variant="outline" size="sm" disabled={running} onClick={scanExcl}>
                   <RefreshCw className="size-3.5" /> Scan
@@ -218,7 +218,7 @@ export default function Exclusivity() {
           <Card>
             <CardHeader className="border-b">
               <CardTitle className="flex items-center gap-2"><UserCheck className="size-4 text-primary" /> Artist exclusivity</CardTitle>
-              <CardDescription>Artists that appear in more than one library (one library per artist)</CardDescription>
+              <CardDescription>Report artists that appear in more than one library.</CardDescription>
               <CardAction>
                 <Button variant="outline" size="sm" disabled={running} onClick={scanArtists}>
                   <RefreshCw className="size-3.5" /> Scan

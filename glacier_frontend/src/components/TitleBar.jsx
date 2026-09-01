@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge.jsx';
 export default function TitleBar({ sys, jobsCount, errorCount, onErrors, onLogs, onPalette }) {
   const running = jobsCount > 0;
   return (
-    <header className="glass-surface fixed left-14 right-0 top-0 z-20 flex h-10 items-center justify-between rounded-none border-x-0 border-t-0 px-4 md:px-6">
+    <header className="glass-surface fixed right-0 top-0 z-20 flex h-10 items-center justify-between rounded-none border-x-0 border-t-0 px-4 md:px-6" style={{ left: 'var(--rail-w)' }}>
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 rounded-full ${running ? 'bg-warn animate-pulse' : 'bg-ok'}`} />
         <span className="text-sm font-semibold">Glacier</span>

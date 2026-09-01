@@ -27,11 +27,18 @@ USER root
 
 WORKDIR /app
 
+# ffmpeg ships with the image so audio analysis (waveform/spectrum) works out
+# of the box — no runtime install, no host conflicts.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 # gunicorn is only needed in the (Linux) container; keep it out of the Windows
 # dev requirements so `glacier_env` continues to install cleanly.
+# numpy powers the FFT in the audio analyzer.
 RUN pip install --no-cache-dir -r requirements.txt \
- && pip install --no-cache-dir "gunicorn>=21,<24"
+ && pip install --no-cache-dir "gunicorn>=21,<24" numpy
 
 COPY wsgi.py ./
 COPY glacier.py ./
@@ -45,5 +52,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:5050/api/system', timeout=5); raise SystemExit(0 if r.status==200 else 1)"
 
 # gthread worker keeps SSE streaming happy; single worker matches the app's
-# single-job supervisor design. Host port mapping is done in compose.yaml.
-CMD ["gunicorn", "--bind", "0.0.0.0:5050", "--workers", "1", "--threads", "8", "--timeout", "300", "--keep-alive", "65", "wsgi:app"]
+# single-job supervisor design. Long timeout so multi-hour scans/pulls on big
+# libraries are never reaped mid-job (the frontend polls /api/jobs/history, so
+# workers must survive while jobs run). Host port mapping is in compose.yaml.
+CMD ["gunicorn", "--bind", "0.0.0.0:5050", "--workers", "1", "--threads", "16", "--timeout", "3600", "--graceful-timeout", "60", "--keep-alive", "120", "wsgi:app"]

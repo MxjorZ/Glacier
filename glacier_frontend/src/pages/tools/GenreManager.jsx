@@ -121,7 +121,7 @@ export default function GenreManager() {
       <Card>
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2"><Music2 className="size-4 text-primary" /> Genres in {libName(libId)}</CardTitle>
-          <CardDescription>Tap a genre (or several for merge) then choose an action below.</CardDescription>
+          <CardDescription>Select a genre (or several to merge), then choose an action below.</CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
           <p className="mb-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">

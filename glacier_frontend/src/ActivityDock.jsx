@@ -190,7 +190,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
   };
 
   return (
-    <div className="activity-dock fixed bottom-0 left-14 right-0 z-50 flex flex-col border-t" style={{ opacity: opacity / 100 }}>
+    <div className="activity-dock fixed bottom-0 right-0 z-50 flex flex-col border-t" style={{ opacity: opacity / 100, left: 'var(--rail-w)' }}>
       {open && (
         <div role="button" tabIndex={-1} onMouseDown={onDrag}
           className="flex h-2 cursor-row-resize items-center justify-center text-muted-foreground/60 hover:text-primary">
@@ -295,9 +295,15 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
                 {visibleLogs.map((l) => {
                   const cat = catOf(l);
                   const logClass = logClassMap[cat] || '';
+                  const time = l.ts ? new Date(l.ts * 1000).toLocaleTimeString() : '';
                   return (
-                    <div key={l.id} className={cn('flex items-start gap-1.5 px-1 py-0.5 break-all rounded border-l-2', logClass)}>
+                    <div key={l.id} className={cn('flex items-start gap-2 px-1 py-0.5 break-all rounded border-l-2', logClass)}>
+                      <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">{time}</span>
+                      <span className="shrink-0 font-mono text-[10px] uppercase opacity-80">{cat}</span>
                       <span className="min-w-0">{l.message || l.label || ''}</span>
+                      {l.job_id != null && (
+                        <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/60">#{l.job_id}</span>
+                      )}
                     </div>
                   );
                 })}

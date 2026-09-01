@@ -53,7 +53,7 @@ export default function ImportFolder() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FolderPlus className="size-4 text-primary" /> Import folder</CardTitle>
-          <CardDescription>Move or copy all audio files from a source folder into a library</CardDescription>
+          <CardDescription>Move or copy audio files from a source folder into a library.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1.5">

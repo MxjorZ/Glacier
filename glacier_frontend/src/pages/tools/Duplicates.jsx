@@ -127,7 +127,7 @@ export default function Duplicates() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Copy className="size-4 text-primary" /> In-library duplicates</CardTitle>
-          <CardDescription>Find repeated tracks within the selected library — extras are quarantined, never deleted</CardDescription>
+          <CardDescription>Report repeated tracks within the selected library — extras are quarantined, never deleted.</CardDescription>
         </CardHeader>
         <CardContent>
           {!dupGroups ? <Empty text="Scan a library to find duplicates." /> : dupGroups.length === 0 ? (

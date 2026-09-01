@@ -94,9 +94,38 @@ def _event(etype, **extra):
     return {"type": etype, **extra}
 
 
-def log(message, level="info"):
-    """Broadcast a 'log' event."""
-    hub.broadcast({"type": "log", "level": level, "message": message, "ts": time.time()})
+# Canonical log levels, most to least severe. Every log line in Glacier uses
+# one of these — no ad-hoc strings — so the console filters, colors and the
+# Error Center all speak the same language.
+LEVELS = ("error", "warning", "info", "success", "verbose")
+
+
+def log(message, level="info", **fields):
+    """Broadcast a 'log' event.
+
+    ``fields`` become structured extra columns (e.g. library=..., count=...).
+    Unknown levels are coerced to ``info`` so a typo can't hide a line.
+    """
+    if level not in LEVELS:
+        level = "info"
+    payload = {"type": "log", "level": level, "message": str(message),
+               "job_id": get_job_id(), "ts": time.time()}
+    payload.update(fields)
+    hub.broadcast(payload)
+
+
+def task(message, **fields):
+    """Log a job/operation lifecycle line (level=info by convention)."""
+    log(message, "info", **fields)
+
+
+def result(message, **fields):
+    """Log an operation's outcome line (level=success by convention)."""
+    log(message, "success", **fields)
+
+
+def warn(message, **fields):
+    log(message, "warning", **fields)
 
 
 def progress(current, total, label=None):

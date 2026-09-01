@@ -97,7 +97,7 @@ export default function Organize() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FolderTree className="size-4 text-primary" /> Organize</CardTitle>
-          <CardDescription>Apply folder &amp; naming patterns</CardDescription>
+          <CardDescription>Apply your folder and naming patterns to the library.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">

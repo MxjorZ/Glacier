@@ -5,7 +5,6 @@
 
 /* ===== THEME VARIABLES (with oklch colors) ===== */
 :root {
-  --radius: 0.75rem;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -46,10 +45,14 @@
   --glass-tint-strong: 18, 20, 28;
   --glass-hover: rgba(255, 255, 255, 0.07); /* row/item hover fill */
   --glass-active: rgba(255, 255, 255, 0.04);
+}
 
-  /* Rounding — base 1rem, "50% rounder" than the original 0.75rem cards. */
-  --glass-radius: 1.5rem;
-  --radius: 1.1rem;
+/* Rounding scale — every card/dialog/menu reads the SAME token so the
+   Appearance slider rounds the whole app uniformly. Base is 50% rounder
+   than the original 0.75rem cards (=> 1.125rem), slider can go to 2rem. */
+:root {
+  --glass-radius: 1.5rem;   /* cards, dialogs, menus */
+  --radius: 1.125rem;        /* buttons, inputs, chips */
 }
 
 /* Light mode: bright acrylic glass instead of dark glass. */
@@ -68,9 +71,24 @@ html:not(.dark):not(.amoled) {
    .glass            — panels, cards (subtle)
    .glass-surface    — inputs, list rows (a bit stronger)
    .glass-surface-strong — dropdowns, modals, menus (most opaque, most blur)
-   All tiers read the mode-aware tint, so light mode is genuinely light. */
-.glass, .glass-surface, .glass-surface-strong {
+   .glass-card       — the Card component: mica/acrylic material
+
+   The material lives on ::before (absolute inset-0 backdrop). Content sits
+   above at z-index, so the transparency slider changes ONLY the material —
+   text and controls inside are always fully opaque. */
+.glass, .glass-surface, .glass-surface-strong, .glass-card {
   position: relative;
+  isolation: isolate;
+  border-radius: var(--glass-radius);
+}
+.glass::before, .glass-surface::before, .glass-surface-strong::before,
+.glass-card::before, .glass-card > .card-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
   background:
     linear-gradient(145deg,
       rgba(255, 255, 255, 0.06) 0%,
@@ -82,12 +100,14 @@ html:not(.dark):not(.amoled) {
   border: 1px solid rgba(var(--glass-tint), var(--glass-border-alpha));
   box-shadow: var(--glass-highlight), var(--glass-shadow);
 }
-html:not(.dark):not(.amoled) .glass,
-html:not(.dark):not(.amoled) .glass-surface,
-html:not(.dark):not(.amoled) .glass-surface-strong {
+html:not(.dark):not(.amoled) .glass::before,
+html:not(.dark):not(.amoled) .glass-surface::before,
+html:not(.dark):not(.amoled) .glass-surface-strong::before,
+html:not(.dark):not(.amoled) .glass-card::before {
   border-color: rgba(255, 255, 255, calc(var(--glass-border-alpha) + 0.45));
 }
-.glass-surface {
+
+.glass-surface::before {
   background:
     linear-gradient(145deg,
       rgba(255, 255, 255, 0.05) 0%,
@@ -95,7 +115,7 @@ html:not(.dark):not(.amoled) .glass-surface-strong {
       rgba(255, 255, 255, 0.04) 100%),
     rgba(var(--glass-tint), calc(var(--glass-alpha) + 0.06));
 }
-.glass-surface-strong {
+.glass-surface-strong::before {
   background:
     linear-gradient(145deg,
       rgba(255, 255, 255, 0.09) 0%,
@@ -106,28 +126,31 @@ html:not(.dark):not(.amoled) .glass-surface-strong {
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.25)) saturate(var(--glass-saturation));
   box-shadow: var(--glass-highlight), var(--glass-shadow-lg);
 }
-
-/* Specular top edge — the "liquid" tell of the design. Weaker in light mode
-   (a white streak on white glass just looks like a bug). */
-.glass::before, .glass-surface::before, .glass-surface-strong::before {
+/* The mica/acrylic card: a touch more blur than panels, specular edge on top
+   (kept, but layered AFTER the material so it never dims content). */
+.glass-card::before {
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(var(--glass-saturation));
+}
+.glass-card::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
+  z-index: -1;
   background: linear-gradient(180deg,
     rgba(255, 255, 255, 0.10) 0%,
     rgba(255, 255, 255, 0.02) 18%,
     transparent 30%);
 }
-html:not(.dark):not(.amoled) .glass::before,
-html:not(.dark):not(.amoled) .glass-surface::before,
-html:not(.dark):not(.amoled) .glass-surface-strong::before {
+html:not(.dark):not(.amoled) .glass-card::after {
   background: linear-gradient(180deg,
     rgba(255, 255, 255, 0.55) 0%,
     rgba(255, 255, 255, 0.12) 16%,
     transparent 28%);
 }
+.glass-card > * { position: relative; }
 
 /* AMOLED: near-black glass, blur stays for depth. */
 html.amoled {
@@ -279,7 +302,11 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
 }
 
 /* ===== SIDEBAR =====
-   Mode-aware glass: dark navy tint in dark mode, bright acrylic in light. */
+   Mode-aware glass, expandable rail. Width is driven by --rail-w (set by the
+   Sidebar component; default 4rem collapsed). Labels fade+slide in when the
+   rail is expanded, so nothing ever reflows jarringly. */
+:root { --rail-w: 4rem; }
+
 .sidebar-container {
   position: fixed;
   left: 0;
@@ -287,9 +314,9 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
   z-index: 30;
   display: flex;
   height: 100%;
-  width: 4rem;
+  width: var(--rail-w);
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.045) 0%,
@@ -300,13 +327,77 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(var(--glass-saturation));
   border-right: 1px solid rgba(255, 255, 255, var(--glass-border-alpha));
   box-shadow: var(--glass-highlight), 8px 0 32px rgba(0, 0, 0, 0.25);
-  padding-top: 1rem;
-  padding-bottom: 1rem;
+  padding: 1rem 0.5rem;
+  transition: width 0.35s var(--anim-easing);
+  overflow: hidden;
 }
 html:not(.dark):not(.amoled) .sidebar-container {
   border-right-color: rgba(120, 140, 180, 0.28);
   box-shadow: var(--glass-highlight), 8px 0 32px rgba(40, 60, 110, 0.10);
 }
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  height: 2.6rem;
+  padding: 0 0.6rem;
+  color: var(--muted-foreground);
+  background: transparent;
+  border-radius: 1rem;
+  cursor: pointer;
+  transition: color 0.25s ease, transform 0.25s var(--anim-easing), background 0.25s ease;
+}
+.nav-item:hover {
+  color: var(--foreground);
+  background: var(--glass-hover);
+  transform: translateY(-1px);
+}
+.nav-item.active {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+/* Liquid glow dot — the active indicator, pulses gently. */
+.nav-icon-glow {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  translate: 0 -50%;
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 9999px;
+  background: var(--primary);
+  opacity: 0;
+  transform: scale(0.4);
+  transition: all 0.3s var(--anim-easing);
+}
+.nav-item.active .nav-icon-glow {
+  opacity: 1;
+  transform: scale(1);
+  box-shadow: 0 0 10px 2px color-mix(in srgb, var(--primary) 60%, transparent);
+  animation: nav-pulse 2.4s ease-in-out infinite;
+}
+@keyframes nav-pulse {
+  0%, 100% { box-shadow: 0 0 8px 1px color-mix(in srgb, var(--primary) 45%, transparent); }
+  50% { box-shadow: 0 0 14px 3px color-mix(in srgb, var(--primary) 75%, transparent); }
+}
+
+/* Labels: hidden (collapsed) or faded in beside the icon (expanded). */
+.nav-item-label {
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 500;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 0.25s ease 0.08s, transform 0.3s var(--anim-easing) 0.08s;
+  pointer-events: none;
+}
+.nav-item-label.shown {
+  opacity: 1;
+  transform: translateX(0);
+}
+.nav-item.active .nav-item-label { font-weight: 600; }
 .sidebar-container .logo {
   width: 2.5rem;
   height: 2.5rem;
@@ -325,48 +416,6 @@ html:not(.dark):not(.amoled) .sidebar-container {
   transform: scale(1.05);
 }
 
-.nav-icon {
-  position: relative;
-  color: var(--muted-foreground);
-  background: transparent;
-  border-radius: 1.1rem;
-  transition: color 0.25s ease, transform 0.25s var(--anim-easing), background 0.25s ease;
-  cursor: pointer;
-}
-.nav-icon:hover {
-  color: var(--foreground);
-  background: rgba(255, 255, 255, 0.06);
-  transform: translateY(-1px);
-}
-.nav-icon.active {
-  color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 14%, transparent);
-}
-/* Liquid glow dot — the active indicator, pulses gently. */
-.nav-icon-glow {
-  position: absolute;
-  right: -0.55rem;
-  top: 50%;
-  translate: 0 -50%;
-  width: 0.3rem;
-  height: 0.3rem;
-  border-radius: 9999px;
-  background: var(--primary);
-  opacity: 0;
-  transform: scale(0.4);
-  transition: all 0.3s var(--anim-easing);
-}
-.nav-icon.active .nav-icon-glow {
-  opacity: 1;
-  transform: scale(1);
-  box-shadow: 0 0 10px 2px color-mix(in srgb, var(--primary) 60%, transparent);
-  animation: nav-pulse 2.4s ease-in-out infinite;
-}
-@keyframes nav-pulse {
-  0%, 100% { box-shadow: 0 0 8px 1px color-mix(in srgb, var(--primary) 45%, transparent); }
-  50% { box-shadow: 0 0 14px 3px color-mix(in srgb, var(--primary) 75%, transparent); }
-}
-
 .sidebar-label {
   transition: color 0.2s ease;
   color: var(--muted-foreground);
@@ -378,11 +427,12 @@ html:not(.dark):not(.amoled) .sidebar-container {
 
 /* ===== MAIN CONTENT ===== */
 .main-content {
-  margin-left: 4rem;
+  margin-left: var(--rail-w);
   margin-top: 2.5rem;
   height: calc(100vh - 2.5rem);
   overflow-y: auto;
   padding: 1.5rem 2rem 4rem 2rem;
+  transition: margin-left 0.35s var(--anim-easing);
 }
 /* Tablet: tighter gutters. */
 @media (max-width: 1024px) {
@@ -391,16 +441,12 @@ html:not(.dark):not(.amoled) .sidebar-container {
 /* Phone: narrower rail, full-bleed content, compact tool grid. */
 @media (max-width: 640px) {
   .main-content {
-    margin-left: 3.25rem;
     padding: 1rem 0.75rem 4.5rem 0.75rem;
   }
-  .sidebar-container { width: 3.25rem; }
-  .activity-dock { left: 3.25rem; }
+  .activity-dock { left: var(--rail-w); }
   .tool-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 0.6rem; }
-  .tool-card { padding: 1rem 0.5rem; }
-  .tool-card .tool-icon { width: 2.25rem; height: 2.25rem; }
-  .tool-card .tool-label { font-size: 0.72rem; }
   .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  .tool-card .tool-icon { width: 2.75rem; height: 2.75rem; }
 }
 
 /* ===== ACTIVITY DOCK (log footer) =====
@@ -409,7 +455,7 @@ html:not(.dark):not(.amoled) .sidebar-container {
 .activity-dock {
   position: fixed;
   bottom: 0;
-  left: 4rem;
+  left: var(--rail-w);
   right: 0;
   z-index: 50;
   background:
@@ -440,25 +486,17 @@ html.amoled .activity-dock {
       rgba(255, 255, 255, 0.04) 100%),
     rgba(4, 4, 7, calc(var(--glass-alpha) + 0.10));
 }
-@media (max-width: 768px) { .activity-dock { left: 4rem; } }
-@media (max-width: 480px) { .activity-dock { left: 4rem; } }
 
-/* ===== CARDS ===== */
+/* ===== CARDS =====
+   .card is the legacy alias for .glass-card (the Card component now emits
+   glass-card; a few hand-written cards still use .card). Same material:
+   layered backdrop so the transparency slider never touches content. */
 .card {
   position: relative;
-  background:
-    linear-gradient(145deg,
-      rgba(255, 255, 255, 0.055) 0%,
-      rgba(255, 255, 255, 0.012) 45%,
-      rgba(255, 255, 255, 0.045) 100%),
-    rgba(20, 22, 30, var(--glass-alpha));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  border: 1px solid rgba(255, 255, 255, var(--glass-border-alpha));
+  isolation: isolate;
   border-radius: var(--glass-radius);
   overflow: hidden;
   transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
-  box-shadow: var(--glass-highlight), var(--glass-shadow);
 }
 .card::before {
   content: '';
@@ -466,13 +504,35 @@ html.amoled .activity-dock {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
+  z-index: -1;
+  background:
+    linear-gradient(145deg,
+      rgba(255, 255, 255, 0.055) 0%,
+      rgba(255, 255, 255, 0.012) 45%,
+      rgba(255, 255, 255, 0.045) 100%),
+    rgba(var(--glass-tint), var(--glass-alpha));
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(var(--glass-saturation));
+  border: 1px solid rgba(var(--glass-tint), var(--glass-border-alpha));
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+html:not(.dark):not(.amoled) .card::before {
+  border-color: rgba(255, 255, 255, calc(var(--glass-border-alpha) + 0.45));
+}
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
   background: linear-gradient(180deg,
     rgba(255, 255, 255, 0.09) 0%,
     rgba(255, 255, 255, 0.02) 18%,
     transparent 30%);
 }
-.card:hover {
-  border-color: rgba(255, 255, 255, calc(var(--glass-border-alpha) + 0.08));
+.card > * { position: relative; }
+.card:hover::before {
   box-shadow: var(--glass-highlight), var(--glass-shadow-lg);
 }
 .card-header {
@@ -492,39 +552,34 @@ html.amoled .activity-dock {
   color: var(--muted-foreground);
 }
 
-/* ===== TOOL GRID ===== */
+/* ===== TOOL GRID =====
+   Square cards, exactly 3 per row, one row per band; wraps to a new row
+   automatically. Bigger icons (3.5rem) with the drop-shadow glow on hover. */
 .tool-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1.25rem;
 }
-@media (min-width: 640px) {
-  .tool-grid { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 900px) {
+  .tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (min-width: 1024px) {
-  .tool-grid { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 560px) {
+  .tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
 }
 
 .tool-card {
   position: relative;
-  background:
-    linear-gradient(145deg,
-      rgba(255, 255, 255, 0.055) 0%,
-      rgba(255, 255, 255, 0.012) 45%,
-      rgba(255, 255, 255, 0.045) 100%),
-    rgba(20, 22, 30, var(--glass-alpha));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  border: 1px solid rgba(255, 255, 255, var(--glass-border-alpha));
+  aspect-ratio: 1 / 1;           /* square by design */
+  isolation: isolate;
   border-radius: var(--glass-radius);
-  padding: 1.5rem 1rem;
+  padding: 1.25rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  transition: transform 0.3s var(--anim-easing), border-color 0.25s ease,
-              box-shadow 0.3s ease;
+  gap: 0.75rem;
+  transition: transform 0.3s var(--anim-easing), box-shadow 0.3s ease;
   cursor: pointer;
   overflow: hidden;
 }
@@ -534,13 +589,25 @@ html.amoled .activity-dock {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: linear-gradient(180deg,
-    rgba(255, 255, 255, 0.09) 0%,
-    rgba(255, 255, 255, 0.02) 18%,
-    transparent 30%);
+  z-index: -1;
+  background:
+    linear-gradient(145deg,
+      rgba(255, 255, 255, 0.055) 0%,
+      rgba(255, 255, 255, 0.012) 45%,
+      rgba(255, 255, 255, 0.045) 100%),
+    rgba(var(--glass-tint), var(--glass-alpha));
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(var(--glass-saturation));
+  border: 1px solid rgba(var(--glass-tint), var(--glass-border-alpha));
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+html:not(.dark):not(.amoled) .tool-card::before {
+  border-color: rgba(255, 255, 255, calc(var(--glass-border-alpha) + 0.45));
 }
 .tool-card:hover {
   transform: translateY(-4px) scale(1.02);
+}
+.tool-card:hover::before {
   border-color: color-mix(in srgb, var(--primary) 45%, transparent);
   box-shadow: 0 12px 40px color-mix(in srgb, var(--primary) 18%, transparent),
               var(--glass-highlight);
@@ -563,10 +630,10 @@ html.amoled .activity-dock {
 }
 [data-glass-sheen="off"] .tool-card::after { display: none; }
 .tool-card .tool-icon {
-  width: 3rem;
-  height: 3rem;
+  width: 3.5rem;
+  height: 3.5rem;
   color: var(--primary);
-  margin-bottom: 0.75rem;
+  margin: 0;
   transition: transform 0.35s var(--anim-easing), filter 0.3s ease;
   filter: drop-shadow(0 0 0 transparent);
 }

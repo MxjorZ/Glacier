@@ -342,8 +342,12 @@ def op_file_delete(paths, library_id=None, confirm=False):
 
 
 def op_file_move(paths, dest_folder, library_id=None, copy=False):
-    """Move (or copy) files/folders into a destination folder in a library."""
-    dest, dest_lib = _resolve_in_library(dest_folder, library_id)
+    """Move (or copy) files/folders into a destination folder.
+
+    The destination may be inside any managed library (so moving between
+    libraries works); each source must itself live inside a library.
+    """
+    dest, dest_lib = _resolve_in_library(dest_folder)
     if not os.path.isdir(dest):
         raise NotADirectoryError("Destination folder not found")
     plan = []
@@ -351,6 +355,8 @@ def op_file_move(paths, dest_folder, library_id=None, copy=False):
         full, _lib = _resolve_in_library(p, library_id)
         if not os.path.exists(full):
             continue
+        if os.path.realpath(full) == os.path.realpath(dest):
+            continue  # already there
         target = os.path.join(dest, os.path.basename(full))
         base, ext = os.path.splitext(target)
         i = 1
@@ -359,9 +365,9 @@ def op_file_move(paths, dest_folder, library_id=None, copy=False):
             i += 1
         plan.append({"source": full, "destination": target})
     moved, errors = mover.execute_plan(plan, dry_run=False, copy=copy)
-    for lid in {library_id, dest_lib["id"]}:
-        if lid:
-            scanner.invalidate_cache(lid)
+    scanner.invalidate_cache(dest_lib["id"])
+    if library_id:
+        scanner.invalidate_cache(library_id)
     browser.invalidate_counts()
     action = "copied" if copy else "moved"
     events.log(f"File manager: {action} {moved} item(s) into {dest}", "success")
@@ -1295,11 +1301,6 @@ def register_routes(app):
         return jsonify({"ok": True,
                         "ffmpeg": audio_analysis.ffmpeg_available()})
 
-    @app.post("/api/ffmpeg-install")
-    def ffmpeg_install():
-        """Install ffmpeg on this host via its package manager (runs as a job)."""
-        return _start("ffmpeg-install", op_ffmpeg_install)
-
     # --- File manager -------------------------------------------------
     @app.post("/api/files/rename")
     def file_rename():
@@ -1572,6 +1573,11 @@ def register_routes(app):
         confirm = bool(body.get("confirm", False))
         return _start("cleanup-apply", op_cleanup_apply,
                       library_id, kind, paths, confirm)
+
+    @app.post("/api/run/ffmpeg-install")
+    def run_ffmpeg_install():
+        """Install ffmpeg on this host via its package manager (runs as a job)."""
+        return _start("ffmpeg-install", op_ffmpeg_install)
 
     @app.post("/api/run/covers")
     def run_covers():

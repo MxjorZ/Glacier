@@ -77,7 +77,7 @@ export default function AudioQualityAnalyzer() {
       <Card>
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2"><Mic className="size-4 text-primary" /> Audio Quality Analyzer</CardTitle>
-          <CardDescription>Waveform, full-range spectrum (0–22 kHz) and spectrogram for any track</CardDescription>
+          <CardDescription>Inspect the waveform, full-range spectrum (0–22 kHz) and spectrogram of any track.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 pt-4">
           <div className="flex flex-wrap items-center gap-2">
