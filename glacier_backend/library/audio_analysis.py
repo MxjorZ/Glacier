@@ -51,6 +51,76 @@ def ffmpeg_available():
     return _ffmpeg_path() is not None
 
 
+# --- Automatic installation ------------------------------------------------
+#
+# Runs the platform's package manager in the background and reports back via
+# the job system. Windows tries winget -> scoop -> choco (first one found);
+# Linux tries the system package manager (apt/apk/dnf). We never fail hard —
+# a missing manager just surfaces a clear error the UI can show.
+
+def _install_commands_windows():
+    """Yield (manager, argv) candidates for installing ffmpeg on Windows."""
+    for mgr in ("winget", "scoop", "choco"):
+        path = shutil.which(mgr)
+        if not path:
+            continue
+        if mgr == "winget":
+            # --accept flags keep it non-interactive; scope machine-wide.
+            yield mgr, [path, "install", "--id", "Gyan.FFmpeg", "-e",
+                        "--accept-source-agreements", "--accept-package-agreements"]
+        elif mgr == "scoop":
+            yield mgr, [path, "install", "ffmpeg"]
+        else:
+            yield mgr, [path, "install", "-y", "ffmpeg"]
+
+
+def _install_commands_linux():
+    for mgr, argv in (
+        ("apt", ["apt-get", "install", "-y", "ffmpeg"]),
+        ("apk", ["apk", "add", "--no-cache", "ffmpeg"]),
+        ("dnf", ["dnf", "install", "-y", "ffmpeg"]),
+    ):
+        path = shutil.which(argv[0])
+        if path:
+            yield mgr, [path] + argv[1:]
+
+
+def install_ffmpeg():
+    """Install ffmpeg with the platform package manager. Blocking.
+
+    Returns {"ok", "manager", "output"} — run this inside a job (the UI does).
+    """
+    import subprocess
+    import stat as _stat
+
+    if os.name == "nt":
+        candidates = list(_install_commands_windows())
+    else:
+        candidates = list(_install_commands_linux())
+
+    if not candidates:
+        raise RuntimeError(
+            "No package manager found (winget/scoop/choco on Windows, "
+            "apt/apk/dnf on Linux). Install ffmpeg manually.")
+
+    last_err = ""
+    for mgr, argv in candidates:
+        events.log(f"Installing ffmpeg via {mgr}…", "info")
+        try:
+            proc = subprocess.run(argv, capture_output=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            last_err = f"{mgr}: install timed out"
+            continue
+        out = (proc.stdout or b"") + (proc.stderr or b"")
+        text = out.decode("utf-8", "replace")[-2000:]
+        if proc.returncode == 0 and ffmpeg_available():
+            events.log(f"ffmpeg installed via {mgr}", "success")
+            return {"ok": True, "manager": mgr, "output": text}
+        last_err = f"{mgr} (exit {proc.returncode}): {text[-400:]}"
+
+    raise RuntimeError(f"Automatic install failed. {last_err}")
+
+
 def _decode(path, rate=ANALYSIS_RATE):
     """Decode any audio file to mono float32 PCM at ``rate`` via ffmpeg.
 

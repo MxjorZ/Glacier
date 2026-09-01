@@ -31,7 +31,8 @@
 
   /* ===== LIQUID GLASS SYSTEM =====
      Tunable via Settings → Appearance. Defaults give the modern glass look:
-     translucent surfaces + backdrop blur + saturation boost + specular edge. */
+     translucent surfaces + backdrop blur + saturation boost + specular edge.
+     --glass-tint / --glass-tint-strong are re-mapped per theme mode below. */
   --glass-blur: 24px;
   --glass-saturation: 160%;
   --glass-alpha: 0.62;          /* 0..1 — surface opacity */
@@ -40,12 +41,34 @@
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   --glass-shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.45);
+  /* Surface tint (mode-dependent) + interactive glass highlight/hover. */
+  --glass-tint: 20, 22, 30;                 /* dark navy glass */
+  --glass-tint-strong: 18, 20, 28;
+  --glass-hover: rgba(255, 255, 255, 0.07); /* row/item hover fill */
+  --glass-active: rgba(255, 255, 255, 0.04);
+
+  /* Rounding — base 1rem, "50% rounder" than the original 0.75rem cards. */
+  --glass-radius: 1.5rem;
+  --radius: 1.1rem;
+}
+
+/* Light mode: bright acrylic glass instead of dark glass. */
+html:not(.dark):not(.amoled) {
+  --glass-tint: 238, 242, 252;
+  --glass-tint-strong: 240, 244, 255;
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --glass-shadow: 0 8px 32px rgba(40, 60, 110, 0.14);
+  --glass-shadow-lg: 0 16px 48px rgba(40, 60, 110, 0.20);
+  --glass-hover: rgba(0, 20, 60, 0.06);
+  --glass-active: rgba(0, 20, 60, 0.04);
+  --glass-border-alpha: 0.30;
 }
 
 /* Glass surface tiers ------------------------------------------------
    .glass            — panels, cards (subtle)
    .glass-surface    — inputs, list rows (a bit stronger)
-   .glass-surface-strong — dropdowns, modals, menus (most opaque, most blur) */
+   .glass-surface-strong — dropdowns, modals, menus (most opaque, most blur)
+   All tiers read the mode-aware tint, so light mode is genuinely light. */
 .glass, .glass-surface, .glass-surface-strong {
   position: relative;
   background:
@@ -53,11 +76,16 @@
       rgba(255, 255, 255, 0.06) 0%,
       rgba(255, 255, 255, 0.015) 45%,
       rgba(255, 255, 255, 0.05) 100%),
-    rgba(20, 22, 30, var(--glass-alpha));
+    rgba(var(--glass-tint), var(--glass-alpha));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  border: 1px solid rgba(255, 255, 255, var(--glass-border-alpha));
+  border: 1px solid rgba(var(--glass-tint), var(--glass-border-alpha));
   box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+html:not(.dark):not(.amoled) .glass,
+html:not(.dark):not(.amoled) .glass-surface,
+html:not(.dark):not(.amoled) .glass-surface-strong {
+  border-color: rgba(255, 255, 255, calc(var(--glass-border-alpha) + 0.45));
 }
 .glass-surface {
   background:
@@ -65,7 +93,7 @@
       rgba(255, 255, 255, 0.05) 0%,
       rgba(255, 255, 255, 0.01) 50%,
       rgba(255, 255, 255, 0.04) 100%),
-    rgba(20, 22, 30, calc(var(--glass-alpha) + 0.06));
+    rgba(var(--glass-tint), calc(var(--glass-alpha) + 0.06));
 }
 .glass-surface-strong {
   background:
@@ -73,13 +101,14 @@
       rgba(255, 255, 255, 0.09) 0%,
       rgba(255, 255, 255, 0.03) 50%,
       rgba(255, 255, 255, 0.08) 100%),
-    rgba(18, 20, 28, var(--glass-alpha-strong));
+    rgba(var(--glass-tint-strong), var(--glass-alpha-strong));
   backdrop-filter: blur(calc(var(--glass-blur) * 1.25)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.25)) saturate(var(--glass-saturation));
   box-shadow: var(--glass-highlight), var(--glass-shadow-lg);
 }
 
-/* Specular top edge — the "liquid" tell of the design. */
+/* Specular top edge — the "liquid" tell of the design. Weaker in light mode
+   (a white streak on white glass just looks like a bug). */
 .glass::before, .glass-surface::before, .glass-surface-strong::before {
   content: '';
   position: absolute;
@@ -91,31 +120,19 @@
     rgba(255, 255, 255, 0.02) 18%,
     transparent 30%);
 }
-
-/* Light mode: whiter glass instead of dark glass. */
-html:not(.dark):not(.amoled) .glass,
-html:not(.dark):not(.amoled) .glass-surface,
-html:not(.dark):not(.amoled) .glass-surface-strong {
-  background:
-    linear-gradient(145deg,
-      rgba(255, 255, 255, 0.55) 0%,
-      rgba(255, 255, 255, 0.28) 50%,
-      rgba(255, 255, 255, 0.48) 100%),
-    rgba(240, 244, 255, var(--glass-alpha));
-  border-color: rgba(255, 255, 255, calc(var(--glass-border-alpha) + 0.35));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 8px 32px rgba(30, 40, 70, 0.12);
+html:not(.dark):not(.amoled) .glass::before,
+html:not(.dark):not(.amoled) .glass-surface::before,
+html:not(.dark):not(.amoled) .glass-surface-strong::before {
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.12) 16%,
+    transparent 28%);
 }
 
 /* AMOLED: near-black glass, blur stays for depth. */
-html.amoled .glass,
-html.amoled .glass-surface,
-html.amoled .glass-surface-strong {
-  background:
-    linear-gradient(145deg,
-      rgba(255, 255, 255, 0.05) 0%,
-      rgba(255, 255, 255, 0.01) 50%,
-      rgba(255, 255, 255, 0.04) 100%),
-    rgba(5, 5, 8, var(--glass-alpha));
+html.amoled {
+  --glass-tint: 5, 5, 8;
+  --glass-tint-strong: 3, 3, 6;
 }
 
 /* Animated glass sheen — sweeps across on hover. Togglable via Settings. */
@@ -261,7 +278,8 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
   50% { transform: scale(1.1); }
 }
 
-/* ===== SIDEBAR ===== */
+/* ===== SIDEBAR =====
+   Mode-aware glass: dark navy tint in dark mode, bright acrylic in light. */
 .sidebar-container {
   position: fixed;
   left: 0;
@@ -277,13 +295,17 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
       rgba(255, 255, 255, 0.045) 0%,
       rgba(255, 255, 255, 0.01) 40%,
       rgba(255, 255, 255, 0.035) 100%),
-    rgba(16, 18, 26, calc(var(--glass-alpha) + 0.14));
+    rgba(var(--glass-tint), calc(var(--glass-alpha) + 0.10));
   backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(var(--glass-saturation));
   border-right: 1px solid rgba(255, 255, 255, var(--glass-border-alpha));
   box-shadow: var(--glass-highlight), 8px 0 32px rgba(0, 0, 0, 0.25);
   padding-top: 1rem;
   padding-bottom: 1rem;
+}
+html:not(.dark):not(.amoled) .sidebar-container {
+  border-right-color: rgba(120, 140, 180, 0.28);
+  box-shadow: var(--glass-highlight), 8px 0 32px rgba(40, 60, 110, 0.10);
 }
 .sidebar-container .logo {
   width: 2.5rem;
@@ -307,7 +329,7 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
   position: relative;
   color: var(--muted-foreground);
   background: transparent;
-  border-radius: 0.75rem;
+  border-radius: 1.1rem;
   transition: color 0.25s ease, transform 0.25s var(--anim-easing), background 0.25s ease;
   cursor: pointer;
 }
@@ -350,7 +372,7 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
   color: var(--muted-foreground);
 }
 .sidebar-label:hover {
-  color: #ffffff;
+  color: var(--foreground);
   font-weight: 600;
 }
 
@@ -362,14 +384,28 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
   overflow-y: auto;
   padding: 1.5rem 2rem 4rem 2rem;
 }
-@media (max-width: 768px) {
-  .main-content { padding: 1rem 1rem 3rem 1rem; }
+/* Tablet: tighter gutters. */
+@media (max-width: 1024px) {
+  .main-content { padding: 1.25rem 1.25rem 4rem 1.25rem; }
 }
-@media (max-width: 480px) {
-  .main-content { padding: 0.75rem 0.75rem 2.5rem 0.75rem; }
+/* Phone: narrower rail, full-bleed content, compact tool grid. */
+@media (max-width: 640px) {
+  .main-content {
+    margin-left: 3.25rem;
+    padding: 1rem 0.75rem 4.5rem 0.75rem;
+  }
+  .sidebar-container { width: 3.25rem; }
+  .activity-dock { left: 3.25rem; }
+  .tool-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 0.6rem; }
+  .tool-card { padding: 1rem 0.5rem; }
+  .tool-card .tool-icon { width: 2.25rem; height: 2.25rem; }
+  .tool-card .tool-label { font-size: 0.72rem; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
 }
 
-/* ===== ACTIVITY DOCK ===== */
+/* ===== ACTIVITY DOCK (log footer) =====
+   Mica/acrylic material: heavy blur + high saturation + subtle luminous
+   top edge — sits on top of the content like a frosted glass bar. */
 .activity-dock {
   position: fixed;
   bottom: 0;
@@ -378,13 +414,31 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
   z-index: 50;
   background:
     linear-gradient(180deg,
-      rgba(255, 255, 255, 0.03) 0%,
-      rgba(255, 255, 255, 0.05) 100%),
-    rgba(16, 18, 26, calc(var(--glass-alpha) + 0.16));
-  backdrop-filter: blur(calc(var(--glass-blur) * 1.15)) saturate(var(--glass-saturation));
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.15)) saturate(var(--glass-saturation));
+      rgba(255, 255, 255, 0.035) 0%,
+      rgba(255, 255, 255, 0.055) 100%),
+    rgba(var(--glass-tint), calc(var(--glass-alpha) + 0.14));
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.4)) saturate(calc(var(--glass-saturation) * 1.15));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.4)) saturate(calc(var(--glass-saturation) * 1.15));
   border-top: 1px solid rgba(255, 255, 255, var(--glass-border-alpha));
-  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.08) inset,
+              0 -16px 48px rgba(0, 0, 0, 0.38);
+}
+html:not(.dark):not(.amoled) .activity-dock {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(255, 255, 255, 0.50) 100%),
+    rgba(var(--glass-tint), calc(var(--glass-alpha) + 0.10));
+  border-top-color: rgba(120, 140, 180, 0.30);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.9) inset,
+              0 -16px 48px rgba(40, 60, 110, 0.16);
+}
+html.amoled .activity-dock {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.025) 0%,
+      rgba(255, 255, 255, 0.04) 100%),
+    rgba(4, 4, 7, calc(var(--glass-alpha) + 0.10));
 }
 @media (max-width: 768px) { .activity-dock { left: 4rem; } }
 @media (max-width: 480px) { .activity-dock { left: 4rem; } }
@@ -449,9 +503,6 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
 }
 @media (min-width: 1024px) {
   .tool-grid { grid-template-columns: repeat(4, 1fr); }
-}
-@media (max-width: 640px) {
-  .tool-grid { grid-template-columns: 1fr; gap: 0.75rem; }
 }
 
 .tool-card {
@@ -582,20 +633,32 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
   background: rgba(255,255,255,0.02) !important;
 }
 
-/* ===== CONTEXT MENU ===== */
+/* ===== CONTEXT MENU =====
+   Items get the same treatment as tool cards: transparent glass, animated
+   hover fill, icon micro-interaction — never a painted solid color. */
 .context-menu-item {
-  transition: all 0.2s ease;
+  position: relative;
   color: var(--muted-foreground);
-  border-radius: 0.375rem;
-  padding: 0.375rem 0.75rem;
+  border-radius: 1.1rem;
+  padding: 0.5rem 0.75rem;
   background: transparent;
+  transition: all 0.25s var(--anim-easing);
+  overflow: hidden;
 }
 .context-menu-item:hover {
-  background: var(--secondary);
-  color: #ffffff;
+  background: var(--glass-hover);
+  color: var(--foreground);
   transform: translateX(4px);
-  font-weight: 600;
 }
+.context-menu-item:hover svg {
+  transform: scale(1.15) rotate(-4deg);
+  color: var(--primary);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--primary) 60%, transparent));
+}
+.context-menu-item svg {
+  transition: all 0.25s var(--anim-easing);
+}
+.context-menu-item:active { transform: translateX(2px) scale(0.98); }
 
 /* ===== BACK BUTTON ===== */
 .back-button {
@@ -603,7 +666,7 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
   color: var(--muted-foreground);
 }
 .back-button:hover {
-  color: #ffffff;
+  color: var(--foreground);
   transform: translateX(-4px);
   font-weight: 600;
 }
@@ -612,7 +675,7 @@ html.amoled .ambience-layer::after { opacity: 0.18; }
 input, select, textarea {
   background: color-mix(in srgb, var(--foreground) 4%, transparent) !important;
   border: 1px solid rgba(255, 255, 255, var(--glass-border-alpha)) !important;
-  border-radius: 0.75rem !important;
+  border-radius: 1.1rem !important;
   color: var(--foreground) !important;
   padding: 0.5rem 0.75rem !important;
   backdrop-filter: blur(8px) saturate(120%);
@@ -662,19 +725,20 @@ label {
 .settings-nav-item {
   transition: all 0.2s ease;
   color: var(--muted-foreground);
-  border-radius: 0.5rem;
+  border-radius: 0.875rem;
 }
 .settings-nav-item:hover {
-  background: var(--secondary);
-  color: #ffffff;
+  background: var(--glass-hover);
+  color: var(--foreground);
   font-weight: 500;
 }
 .settings-nav-item.active {
-  background: rgba(108, 92, 231, 0.15);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
   color: var(--primary);
 }
 .settings-nav-item.active:hover {
-background: var(--secondary);  color: #ffffff;
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--primary);
 }
 
 /* ===== DESTRUCTIVE (e.g., trash icon) ===== */
@@ -682,17 +746,43 @@ background: var(--secondary);  color: #ffffff;
   color: var(--err) !important;
 }
 .text-destructive:hover {
-  color: #ffffff !important;
+  color: var(--foreground) !important;
   filter: drop-shadow(0 0 8px var(--err));
 }
 
-/* Switch ON state */
-[data-state="checked"] {
-  background-color: var(--ok) !important; /* green */
+/* ===== SWITCH (on/off toggles) =====
+   Glass track instead of painted green/red: an unchecked switch is a neutral
+   glass pill; checked uses the accent with a soft glow. The thumb squishes
+   slightly on press, like a physical toggle. */
+[data-slot="switch"] {
+  background: rgba(var(--glass-tint), 0.35) !important;
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, calc(var(--glass-border-alpha) + 0.10)) !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: background 0.3s var(--anim-easing), border-color 0.3s ease, box-shadow 0.3s ease;
 }
-/* Switch OFF state */
-[data-state="unchecked"] {
-  background-color: var(--err) !important; /* red */
+html:not(.dark):not(.amoled) [data-slot="switch"] {
+  background: rgba(255, 255, 255, 0.45) !important;
+  border-color: rgba(120, 140, 180, 0.35) !important;
+  box-shadow: inset 0 1px 3px rgba(90, 110, 150, 0.25);
+}
+[data-slot="switch"][data-state="checked"] {
+  background: color-mix(in srgb, var(--primary) 75%, transparent) !important;
+  border-color: color-mix(in srgb, var(--primary) 65%, transparent) !important;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--primary) 35%, transparent),
+              inset 0 1px 2px rgba(255, 255, 255, 0.25);
+}
+[data-slot="switch"] [data-slot="switch-thumb"] {
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform 0.3s var(--anim-easing), box-shadow 0.3s ease;
+}
+[data-slot="switch"][data-state="unchecked"] [data-slot="switch-thumb"] {
+  background: color-mix(in srgb, var(--foreground) 75%, #ffffff);
+}
+[data-slot="switch"]:active [data-slot="switch-thumb"] {
+  transform: scaleX(1.25);
 }
 
 .context-menu {
@@ -705,7 +795,7 @@ background: var(--secondary);  color: #ffffff;
   backdrop-filter: blur(calc(var(--glass-blur) * 1.25)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.25)) saturate(var(--glass-saturation));
   border: 1px solid rgba(255, 255, 255, var(--glass-border-alpha));
-  border-radius: 0.75rem;
+  border-radius: 1.1rem;
   box-shadow: var(--glass-highlight), var(--glass-shadow-lg);
 }
 

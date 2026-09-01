@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   FolderTree, Copy, ShieldAlert, UserCheck, Trash2, FolderPlus,
   Music2, Tag, Mic, FileSearch,
@@ -26,8 +26,16 @@ const TOOLS = [
   { id: 'filemanager', label: 'File Manager', Icon: FileSearch, component: FileManager },
 ];
 
-export default function Tools() {
+export default function Tools({ openTool = null, onOpenTool = () => {} }) {
   const [selectedTool, setSelectedTool] = useState(null);
+
+  // The command palette can deep-link into a tool.
+  useEffect(() => {
+    if (openTool) setSelectedTool(openTool);
+  }, [openTool]);
+
+  // Back to the grid also clears the deep-link.
+  const back = () => { setSelectedTool(null); onOpenTool(null); };
 
   if (selectedTool) {
     const tool = TOOLS.find((t) => t.id === selectedTool);
@@ -36,7 +44,7 @@ export default function Tools() {
     return (
       <div>
         <button
-          onClick={() => setSelectedTool(null)}
+          onClick={back}
           className="back-button mb-4 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
         >
           ← Back to Tools

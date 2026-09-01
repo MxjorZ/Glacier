@@ -45,6 +45,8 @@ export default function SearchableTrackPicker({
     return () => { alive = false; };
   }, [libraries]);
 
+  // The controlled libraryId is authoritative when provided; the fallback only
+  // kicks in for uncontrolled usage.
   const effectiveLib = libraryId || libs?.[0]?.id || '';
 
   // Server-side search (debounced).
@@ -62,6 +64,13 @@ export default function SearchableTrackPicker({
     }, 220);
     return () => { alive = false; clearTimeout(t); };
   }, [query, effectiveLib]);
+
+  // Reset selection when the library changes out from under us.
+  useEffect(() => {
+    setSel(null);
+    setResults([]);
+    setTotal(0);
+  }, [effectiveLib]);
 
   // Track click-outside / Escape.
   useEffect(() => {
@@ -119,11 +128,11 @@ export default function SearchableTrackPicker({
         {!busy && total > 0 && (
           <Badge variant="secondary" className="shrink-0 font-mono text-[10px]">{total.toLocaleString()}</Badge>
         )}
-        {libs && libs.length > 1 && (
+        {libs && libs.length > 0 && (
           <select
             value={effectiveLib}
             onChange={(e) => { onLibraryChange(e.target.value); setSel(null); onChange(null); }}
-            className="glass-select max-w-32 shrink-0 rounded-lg border border-white/10 bg-transparent px-2 py-1 text-xs text-foreground outline-none"
+            className="glass-select max-w-36 shrink-0 rounded-lg border border-white/10 bg-transparent px-2 py-1 text-xs text-foreground outline-none"
             aria-label="Library"
           >
             {libs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}

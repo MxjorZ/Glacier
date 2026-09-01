@@ -1,10 +1,10 @@
 import { Loader2, Server, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge.jsx';
 
-export default function TitleBar({ sys, jobsCount, errorCount, onErrors, onLogs }) {
+export default function TitleBar({ sys, jobsCount, errorCount, onErrors, onLogs, onPalette }) {
   const running = jobsCount > 0;
   return (
-    <header className="fixed left-14 right-0 top-0 z-20 flex h-10 items-center justify-between border-b bg-background/80 px-4 backdrop-blur md:px-6">
+    <header className="glass-surface fixed left-14 right-0 top-0 z-20 flex h-10 items-center justify-between rounded-none border-x-0 border-t-0 px-4 md:px-6">
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 rounded-full ${running ? 'bg-warn animate-pulse' : 'bg-ok'}`} />
         <span className="text-sm font-semibold">Glacier</span>
@@ -16,6 +16,14 @@ export default function TitleBar({ sys, jobsCount, errorCount, onErrors, onLogs 
         )}
       </div>
       <div className="flex items-center gap-2 text-xs text-muted-foreground md:gap-3">
+        <button
+          onClick={onPalette}
+          title="Open command palette (Ctrl+K)"
+          className="glass-surface hidden items-center gap-2 rounded-full px-2.5 py-1 text-[11px] transition-all hover:scale-105 hover:text-foreground sm:flex"
+        >
+          <span className="opacity-70">Search anything…</span>
+          <kbd className="rounded border border-white/15 bg-white/5 px-1 font-mono text-[10px]">Ctrl K</kbd>
+        </button>
         {errorCount > 0 && (
           <button
             onClick={onErrors}

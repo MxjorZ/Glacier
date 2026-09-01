@@ -65,6 +65,10 @@ export const api = {
   tagRead: (paths) => req('POST', '/api/tag-read', { paths }),
   tagSave: (paths, field, value) => req('POST', '/api/tag-save', { paths, field, value }),
 
+  // File manager (library-scoped, backend enforces containment)
+  fileRename: (path, name, library_id) => req('POST', '/api/files/rename', { path, name, library_id }),
+  fileNewFolder: (path, name, library_id) => req('POST', '/api/files/new-folder', { path, name, library_id }),
+
   plex: {
     status: () => req('POST', '/api/plex/status'),
     test: (url, token, section) => req('POST', '/api/plex/test', { url, token, section }),

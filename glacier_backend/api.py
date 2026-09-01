@@ -244,6 +244,145 @@ def op_audio_analyze(path):
     return result
 
 
+def op_ffmpeg_install():
+    """Install ffmpeg on the host so waveform/spectrum analysis works."""
+    events.progress(0, 1, "Installing ffmpeg")
+    result = audio_analysis.install_ffmpeg()
+    events.progress(1, 1, "Installing ffmpeg")
+    return result
+
+
+# ======================================================================
+# File manager – safe, library-scoped file operations
+# ======================================================================
+
+def _resolve_in_library(path, library_id=None):
+    """Return (abs_path, lib) for a path inside a managed library.
+
+    Every file-manager mutation must resolve through here: paths outside any
+    library root are rejected, and path traversal out of the library is
+    blocked (realpath containment check).
+    """
+    path = os.path.realpath(os.path.abspath(os.path.expanduser(path or "")))
+    libs = _libs()
+    if library_id:
+        lib = store.get_library(library_id)
+        if not lib:
+            raise ValueError("Unknown library")
+        root = os.path.realpath(lib["path"])
+        if path != root and not path.startswith(root + os.sep):
+            raise ValueError("Path is outside the selected library")
+        return path, lib
+    for lib in libs:
+        root = os.path.realpath(lib["path"])
+        if path == root or path.startswith(root + os.sep):
+            return path, lib
+    raise ValueError("Path must be inside a managed library")
+
+
+def op_file_rename(path, new_name, library_id=None):
+    """Rename a file or folder inside its library."""
+    full, lib = _resolve_in_library(path, library_id)
+    new_name = (new_name or "").strip()
+    if not new_name or new_name in (".", "..") or os.sep in new_name or "/" in new_name:
+        raise ValueError("Invalid new name")
+    if not os.path.exists(full):
+        raise FileNotFoundError("Item not found")
+    dest = os.path.join(os.path.dirname(full), new_name)
+    if os.path.exists(dest):
+        raise ValueError("An item with that name already exists here")
+    os.rename(full, dest)
+    scanner.invalidate_cache(lib["id"])
+    browser.invalidate_counts()
+    events.log(f"Renamed: {os.path.basename(full)} -> {new_name}", "success")
+    return {"ok": True, "path": dest}
+
+
+def op_file_delete(paths, library_id=None, confirm=False):
+    """Delete files/folders. Destructive: requires confirm, library-scoped.
+
+    Folders are only removed when they contain nothing but non-audio files
+    or are empty — the audio itself must be deleted file-by-file (explicit).
+    """
+    if not confirm:
+        raise ValueError("Deletion requires explicit confirmation (confirm=true)")
+    deleted = 0
+    errors = []
+    touched_libs = set()
+    for i, p in enumerate(paths or []):
+        if is_cancelled():
+            raise JobCancelled()
+        try:
+            full, lib = _resolve_in_library(p, library_id)
+            touched_libs.add(lib["id"])
+            if os.path.isfile(full):
+                os.remove(full)
+                deleted += 1
+            elif os.path.isdir(full):
+                # Safety: refuse to remove a folder that still holds audio.
+                has_audio = any(
+                    os.path.splitext(f)[1].lower() in {e.lower() for e in store.get()["extensions"]}
+                    for _r, _d, files in os.walk(full) for f in files)
+                if has_audio:
+                    errors.append({"path": p, "error": "folder still contains audio — delete files first"})
+                    continue
+                shutil.rmtree(full)
+                deleted += 1
+            else:
+                errors.append({"path": p, "error": "not found"})
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"path": p, "error": str(exc)})
+        if (i + 1) % 25 == 0 or i + 1 == len(paths):
+            events.progress(i + 1, len(paths), "Deleting")
+    for lid in touched_libs:
+        scanner.invalidate_cache(lid)
+    browser.invalidate_counts()
+    events.log(f"File manager: deleted {deleted} item(s)", "success")
+    return {"ok": True, "deleted": deleted, "errors": errors}
+
+
+def op_file_move(paths, dest_folder, library_id=None, copy=False):
+    """Move (or copy) files/folders into a destination folder in a library."""
+    dest, dest_lib = _resolve_in_library(dest_folder, library_id)
+    if not os.path.isdir(dest):
+        raise NotADirectoryError("Destination folder not found")
+    plan = []
+    for p in paths or []:
+        full, _lib = _resolve_in_library(p, library_id)
+        if not os.path.exists(full):
+            continue
+        target = os.path.join(dest, os.path.basename(full))
+        base, ext = os.path.splitext(target)
+        i = 1
+        while os.path.exists(target):
+            target = f"{base} ({i}){ext}"
+            i += 1
+        plan.append({"source": full, "destination": target})
+    moved, errors = mover.execute_plan(plan, dry_run=False, copy=copy)
+    for lid in {library_id, dest_lib["id"]}:
+        if lid:
+            scanner.invalidate_cache(lid)
+    browser.invalidate_counts()
+    action = "copied" if copy else "moved"
+    events.log(f"File manager: {action} {moved} item(s) into {dest}", "success")
+    return {"ok": True, "moved": moved, "errors": errors}
+
+
+def op_file_new_folder(path, name, library_id=None):
+    """Create a subfolder inside a library."""
+    parent, lib = _resolve_in_library(path, library_id)
+    name = (name or "").strip()
+    if not name or os.sep in name or "/" in name:
+        raise ValueError("Invalid folder name")
+    full = os.path.join(parent, name)
+    if os.path.exists(full):
+        raise ValueError("A folder with that name already exists")
+    os.makedirs(full)
+    browser.invalidate_counts()
+    events.log(f"Created folder: {full}", "success")
+    return {"ok": True, "path": full}
+
+
 def op_genres_list(library_id):
     lib, tracks = _library_tracks(library_id, store.get())
     genres = genre_ops.collect(tracks)
@@ -1155,6 +1294,48 @@ def register_routes(app):
         """Report whether ffmpeg is available for the analyzer UI."""
         return jsonify({"ok": True,
                         "ffmpeg": audio_analysis.ffmpeg_available()})
+
+    @app.post("/api/ffmpeg-install")
+    def ffmpeg_install():
+        """Install ffmpeg on this host via its package manager (runs as a job)."""
+        return _start("ffmpeg-install", op_ffmpeg_install)
+
+    # --- File manager -------------------------------------------------
+    @app.post("/api/files/rename")
+    def file_rename():
+        body = _json_body()
+        if not body.get("path") or not body.get("name"):
+            return jsonify({"ok": False, "error": "path and name required"}), 400
+        try:
+            return jsonify(op_file_rename(body["path"], body["name"], body.get("library_id")))
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+    @app.post("/api/run/file-delete")
+    def file_delete():
+        body = _json_body()
+        return _start("file-delete", op_file_delete,
+                      body.get("paths", []), body.get("library_id"),
+                      bool(body.get("confirm", False)))
+
+    @app.post("/api/run/file-move")
+    def file_move():
+        body = _json_body()
+        if not body.get("dest"):
+            return jsonify({"ok": False, "error": "dest required"}), 400
+        return _start("file-move", op_file_move,
+                      body.get("paths", []), body["dest"],
+                      body.get("library_id"), bool(body.get("copy", False)))
+
+    @app.post("/api/files/new-folder")
+    def file_new_folder():
+        body = _json_body()
+        if not body.get("path") or not body.get("name"):
+            return jsonify({"ok": False, "error": "path and name required"}), 400
+        try:
+            return jsonify(op_file_new_folder(body["path"], body["name"], body.get("library_id")))
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
 
     # --- Settings -----------------------------------------------------
     @app.get("/api/settings")

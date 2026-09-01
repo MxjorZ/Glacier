@@ -1,23 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Mic, Loader2, AudioWaveform, Activity, Flame, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Mic, Loader2, AudioWaveform, Activity, Flame, RefreshCw, AlertTriangle, LibraryBig, Download } from 'lucide-react';
 import { api } from '../../api.js';
 import SearchableTrackPicker from '../../components/SearchableTrackPicker.jsx';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
+import { Button } from '@/components/ui/button.jsx';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select.jsx';
 import { Empty } from '../../components/PageHeader.jsx';
 import { toast } from '../../toast.jsx';
 
-// Audio Quality Analyzer: pick any track in the library, see its waveform
-// timeline, full 0–22 kHz spectrum and a spectrogram heat view.
+// Audio Quality Analyzer: pick a library, search ANY track in it, then see
+// its waveform timeline, full 0–22 kHz spectrum and a spectrogram heat view.
 export default function AudioQualityAnalyzer() {
   const [libs, setLibs] = useState([]);
   const [libId, setLibId] = useState('');
   const [track, setTrack] = useState(null);
   const [info, setInfo] = useState(null);
   const [analysis, setAnalysis] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [ffmpegOk, setFfmpegOk] = useState(true);
+  const [installing, setInstalling] = useState(false);
+  const [ffmpeg, setFfmpeg] = useState(null); // null=unknown, true/false
 
   useEffect(() => {
     api.settings().then((s) => {
@@ -25,7 +27,7 @@ export default function AudioQualityAnalyzer() {
       setLibs(l);
       if (l.length) setLibId(l[0].id);
     }).catch(() => {});
-    api.post('/api/audio-analysis-status').then((r) => setFfmpegOk(!!r.ffmpeg)).catch(() => {});
+    api.post('/api/audio-analysis-status').then((r) => setFfmpeg(!!r.ffmpeg)).catch(() => setFfmpeg(false));
   }, []);
 
   const analyze = async (t) => {
@@ -53,6 +55,16 @@ export default function AudioQualityAnalyzer() {
     if (t) analyze(t);
   };
 
+  const installFfmpeg = async () => {
+    setInstalling(true);
+    try {
+      const res = await api.runAndAwait('ffmpeg-install', {}, { timeoutMs: 10 * 60 * 1000 });
+      if (res?.ok) { toast.success('ffmpeg installed — analysis enabled'); setFfmpeg(true); }
+      else toast.error(res?.error || 'Install failed — see the Error Center');
+    } catch (e) { toast.error(e.message); }
+    finally { setInstalling(false); }
+  };
+
   const fmt = (sec) => {
     if (!Number.isFinite(sec)) return '–';
     const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
@@ -61,26 +73,39 @@ export default function AudioQualityAnalyzer() {
 
   return (
     <div className="space-y-4">
-      {/* Track search — any song in the library */}
+      {/* Library + track search */}
       <Card>
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2"><Mic className="size-4 text-primary" /> Audio Quality Analyzer</CardTitle>
           <CardDescription>Waveform, full-range spectrum (0–22 kHz) and spectrogram for any track</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 pt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <LibraryBig className="size-4 text-muted-foreground" />
+            <Select value={libId} onValueChange={(v) => { setLibId(v); setTrack(null); setAnalysis(null); setInfo(null); }}>
+              <SelectTrigger className="w-60"><SelectValue placeholder="Select a library" /></SelectTrigger>
+              <SelectContent>
+                {libs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
           <SearchableTrackPicker
             libraries={libs}
             libraryId={libId}
             onLibraryChange={setLibId}
             value={track?.path}
             onChange={onPick}
-            placeholder="Search a song to analyze — title, artist, album, genre…"
+            placeholder="Search any song in the library — title, artist, album, genre…"
           />
-          {!ffmpegOk && (
-            <p className="flex items-center gap-2 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+          {ffmpeg === false && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
               <AlertTriangle className="size-4 shrink-0" />
-              ffmpeg was not found on the backend host — waveform/spectrum views are unavailable. Install ffmpeg and refresh.
-            </p>
+              <span className="flex-1">ffmpeg isn't available on the backend host — waveform &amp; spectrum views need it.</span>
+              <Button size="sm" variant="outline" onClick={installFfmpeg} disabled={installing}>
+                {installing ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                {installing ? 'Installing…' : 'Install automatically'}
+              </Button>
+            </div>
           )}
           {track && (
             <p className="truncate font-mono text-[11px] text-muted-foreground">{track.path}</p>

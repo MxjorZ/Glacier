@@ -190,7 +190,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
   };
 
   return (
-    <div className="fixed bottom-0 left-14 right-0 z-50 flex flex-col border-t bg-background shadow-[0_-6px_24px_rgba(0,0,0,0.16)]" style={{ opacity: opacity / 100 }}>
+    <div className="activity-dock fixed bottom-0 left-14 right-0 z-50 flex flex-col border-t" style={{ opacity: opacity / 100 }}>
       {open && (
         <div role="button" tabIndex={-1} onMouseDown={onDrag}
           className="flex h-2 cursor-row-resize items-center justify-center text-muted-foreground/60 hover:text-primary">
@@ -200,8 +200,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
 
       {/* Collapsed summary bar */}
       <button onClick={() => setOpen((o) => !o)}
-        className="flex h-9 w-full shrink-0 items-center gap-3 px-3 text-xs text-muted-foreground hover:bg-accent/40">
-        {runningCount > 0
+        className="flex h-9 w-full shrink-0 items-center gap-3 px-3 text-xs text-muted-foreground hover:bg-accent/40">        {runningCount > 0
           ? <><Loader2 className="size-3.5 animate-spin text-warn" /><span className="font-medium text-warn">{runningCount} job{runningCount === 1 ? '' : 's'} running</span></>
           : <><span className="flex h-2 w-2 rounded-full bg-ok" /><span>Idle</span></>}
         {runningCount > 0 && aggTotal > 0 && <span className="font-mono">{aggCurrent}/{aggTotal}</span>}
@@ -251,8 +250,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
-            <div className="min-h-0 space-y-2 overflow-auto">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="min-h-0 space-y-2 overflow-auto">              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <Loader2 className={cn('size-3.5', runningCount ? 'animate-spin text-warn' : '')} /> Activity
                 <Badge variant="secondary" className="ml-auto">{runningCount}</Badge>
               </div>
@@ -292,7 +290,7 @@ export default function ActivityDock({ jobs, progress, logs, errors, onDismissEr
 
             {/* Log console */}
             <div className="flex min-h-0 flex-col">
-              <div ref={logRef} className="min-h-0 flex-1 overflow-auto rounded-lg border bg-card/50 p-1.5 font-mono text-[11px] leading-relaxed">
+              <div ref={logRef} className="glass-surface min-h-0 flex-1 overflow-auto rounded-xl p-1.5 font-mono text-[11px] leading-relaxed">
                 {visibleLogs.length === 0 && <p className="p-2 text-muted-foreground">No log entries match.</p>}
                 {visibleLogs.map((l) => {
                   const cat = catOf(l);

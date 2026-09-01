@@ -6,6 +6,7 @@ import { playJobSound, unlockAudio } from './lib/sound.js';
 import { ShieldAlert, ScrollText, Music2, Wrench } from 'lucide-react';
 import Sidebar from './components/Sidebar.jsx';
 import TitleBar from './components/TitleBar.jsx';
+import CommandPalette from './components/CommandPalette.jsx';
 import { toast } from './toast.jsx';
 import ActivityDock from './ActivityDock.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -28,8 +29,22 @@ export default function App() {
   const [page, setPage] = useState(readHash);
   const [sys, setSys] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [openTool, setOpenTool] = useState(null);
   const settingsRef = useRef(null);
   settingsRef.current = settings;
+
+  // Ctrl/Cmd+K opens the command palette from anywhere.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const handleEvent = (data) => playJobSound(data, settingsRef.current);
   const { jobs, progress, logs, errors, dismissError, clearErrors } = useSSE(handleEvent);
@@ -84,12 +99,13 @@ export default function App() {
         errorCount={errors.length}
         onErrors={() => nav('errors')}
         onLogs={() => nav('logs')}
+        onPalette={() => setPaletteOpen(true)}
       />
       <main className="main-content relative z-10">
         <div className="mx-auto w-full max-w-7xl">
           {page === 'dashboard' && <Dashboard onNavigate={nav} />}
           {page === 'libraries' && <Libraries />}
-          {page === 'tools' && <Tools />}
+          {page === 'tools' && <Tools openTool={openTool} onOpenTool={setOpenTool} />}
           {page === 'plex' && <Plex />}
           {page === 'logs' && <Logs />}
           {page === 'errors' && <Errors liveErrors={errors} />}
@@ -105,6 +121,13 @@ export default function App() {
         errors={errors}
         onDismissError={dismissError}
         onClearErrors={clearErrors}
+      />
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onNavigate={nav}
+        onOpenTool={(id) => { nav('tools'); setOpenTool(id); }}
       />
 
       {ctx && (
